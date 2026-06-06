@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
@@ -2624,6 +2625,20 @@ class _AppointmentActionThread(QThread):
             )
 
 
+class _AppointmentTermSyncThread(QThread):
+    completed = Signal(int, str)
+
+    def __init__(self, config: AppointmentConfig) -> None:
+        super().__init__()
+        self._config = config
+
+    def run(self) -> None:
+        try:
+            self.completed.emit(AppointmentService(self._config).sync_terms(), "")
+        except Exception as exc:  # noqa: BLE001
+            self.completed.emit(0, str(exc))
+
+
 def _sanitize_console_command(value: str) -> str:
     normalized = " ".join(value.replace("\r", " ").replace("\n", " ").strip().split())
     return _strip_slash_command(normalized)
@@ -2976,65 +2991,27 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
     root.setContentsMargins(18, 14, 18, 18)
     root.setSpacing(12)
 
-    config_card, config_layout = _make_card(
+    top_card, top_layout = _make_card(
         host,
-        "Призначення",
-        "Google Forms черга, GitHub Projects і службові тексти для Telegram.",
+        "Призначення та зняття",
+        "Черга Google Forms, активні записи GitHub Projects і готові тексти для Telegram.",
     )
-    grid = QGridLayout()
-    grid.setContentsMargins(0, 0, 0, 0)
-    grid.setHorizontalSpacing(8)
-    grid.setVerticalSpacing(8)
-    grid.setColumnStretch(1, 2)
-    grid.setColumnStretch(3, 1)
-
-    self.appointment_apps_url_input = _make_line_edit(config_card, "Apps Script Web App URL або кілька URL через кому")
-    self.appointment_github_token_input = _make_line_edit(config_card, "GitHub token")
-    self.appointment_github_token_input.setEchoMode(QLineEdit.EchoMode.Password)
-    self.appointment_owner_input = _make_line_edit(config_card, "GitHub owner / org")
-    self.appointment_leaders_project_input = _make_line_edit(config_card, "17", 72)
-    self.appointment_deputies_project_input = _make_line_edit(config_card, "9", 72)
-    self.appointment_watchers_project_input = _make_line_edit(config_card, "7", 72)
-
-    grid.addWidget(QLabel("APPS SCRIPT", config_card), 0, 0)
-    grid.addWidget(self.appointment_apps_url_input, 0, 1, 1, 3)
-    grid.addWidget(QLabel("GITHUB TOKEN", config_card), 1, 0)
-    grid.addWidget(self.appointment_github_token_input, 1, 1, 1, 3)
-    grid.addWidget(QLabel("OWNER", config_card), 2, 0)
-    grid.addWidget(self.appointment_owner_input, 2, 1)
-
-    project_row = QWidget(config_card)
-    project_layout = QHBoxLayout(project_row)
-    project_layout.setContentsMargins(0, 0, 0, 0)
-    project_layout.setSpacing(8)
-    project_layout.addWidget(QLabel("Лідери", project_row))
-    project_layout.addWidget(self.appointment_leaders_project_input)
-    project_layout.addWidget(QLabel("Заступники", project_row))
-    project_layout.addWidget(self.appointment_deputies_project_input)
-    project_layout.addWidget(QLabel("Слідкуючі", project_row))
-    project_layout.addWidget(self.appointment_watchers_project_input)
-    project_layout.addStretch(1)
-    grid.addWidget(project_row, 2, 2, 1, 2)
-
-    action_row = QWidget(config_card)
+    action_row = QWidget(top_card)
     action_layout = QHBoxLayout(action_row)
     action_layout.setContentsMargins(0, 0, 0, 0)
     action_layout.setSpacing(8)
-    self.appointment_save_config_btn = QPushButton("Зберегти", action_row)
     self.appointment_refresh_btn = QPushButton("Оновити список", action_row)
-    self.appointment_count_label = QLabel("Заявок: -", action_row)
-    self.appointment_save_config_btn.setProperty("class", "secondaryAction")
+    self.appointment_count_label = QLabel("Призначення: - | Зняття: -", action_row)
+    self.appointment_sync_label = QLabel("Синхронізація GitHub готова", action_row)
+    self.appointment_sync_label.setProperty("class", "muted")
     self.appointment_refresh_btn.setProperty("class", "primaryAction")
-    self.appointment_save_config_btn.clicked.connect(lambda: _save_appointment_config_from_ui(self))
     self.appointment_refresh_btn.clicked.connect(lambda: _start_appointments_fetch(self))
-    action_layout.addWidget(self.appointment_save_config_btn)
     action_layout.addWidget(self.appointment_refresh_btn)
     action_layout.addWidget(self.appointment_count_label)
+    action_layout.addWidget(self.appointment_sync_label)
     action_layout.addStretch(1)
-
-    config_layout.addLayout(grid)
-    config_layout.addWidget(action_row)
-    root.addWidget(config_card)
+    top_layout.addWidget(action_row)
+    root.addWidget(top_card)
 
     body = QWidget(host)
     body_layout = QHBoxLayout(body)
@@ -3043,22 +3020,30 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
 
     queue_card, queue_layout = _make_card(body, "Черга")
     queue_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    self.appointments_table = QTableWidget(0, 8, queue_card)
-    self.appointments_table.setHorizontalHeaderLabels(("Дія", "Роль", "NickName", "ID", "Орг.", "Telegram", "Дата", "Джерело"))
-    self.appointments_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-    self.appointments_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-    self.appointments_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-    self.appointments_table.verticalHeader().setVisible(False)
-    self.appointments_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-    self.appointments_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-    self.appointments_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-    self.appointments_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-    self.appointments_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-    self.appointments_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-    self.appointments_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-    self.appointments_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+    self.appointment_workflow_tabs = QTabWidget(queue_card)
+    self.appointment_workflow_tabs.currentChanged.connect(lambda _index: _select_first_appointment_row(self))
+
+    appoint_page = QWidget(self.appointment_workflow_tabs)
+    appoint_layout = QVBoxLayout(appoint_page)
+    appoint_layout.setContentsMargins(0, 0, 0, 0)
+    appoint_layout.setSpacing(0)
+    self.appointments_table = QTableWidget(0, 7, appoint_page)
+    _configure_appointment_table(self.appointments_table, ("Роль", "NickName", "ID", "Організація", "Telegram", "Дата", "Джерело"))
     self.appointments_table.currentCellChanged.connect(lambda *_args: _update_appointment_detail(self))
-    queue_layout.addWidget(self.appointments_table)
+    appoint_layout.addWidget(self.appointments_table)
+
+    removal_page = QWidget(self.appointment_workflow_tabs)
+    removal_layout = QVBoxLayout(removal_page)
+    removal_layout.setContentsMargins(0, 0, 0, 0)
+    removal_layout.setSpacing(0)
+    self.appointment_removals_table = QTableWidget(0, 7, removal_page)
+    _configure_appointment_table(self.appointment_removals_table, ("Роль", "NickName", "ID", "Організація", "Telegram", "Дата", "Джерело"))
+    self.appointment_removals_table.currentCellChanged.connect(lambda *_args: _update_appointment_detail(self))
+    removal_layout.addWidget(self.appointment_removals_table)
+
+    self.appointment_workflow_tabs.addTab(appoint_page, "Призначення")
+    self.appointment_workflow_tabs.addTab(removal_page, "Зняття")
+    queue_layout.addWidget(self.appointment_workflow_tabs)
 
     detail_card, detail_layout = _make_card(body, "Картка")
     detail_card.setMinimumWidth(380)
@@ -3094,7 +3079,7 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
     button_grid.setSpacing(8)
     self.appointment_approve_btn = QPushButton("Призначити", detail_card)
     self.appointment_reject_btn = QPushButton("Відхилити", detail_card)
-    self.appointment_remove_btn = QPushButton("Позначити знятим", detail_card)
+    self.appointment_remove_btn = QPushButton("Зняти з посади", detail_card)
     self.appointment_copy_announcement_btn = QPushButton("Копіювати оголошення", detail_card)
     self.appointment_rank_btn = QPushButton("Видати ранг", detail_card)
     self.appointment_approve_btn.setProperty("class", "primaryAction")
@@ -3129,34 +3114,34 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
     self._appointment_record_by_uid = {}
     self._appointment_fetch_thread = None
     self._appointment_action_threads = []
+    self._appointment_term_thread = None
     _load_appointment_config_into_ui(self)
     _set_appointment_action_buttons_enabled(self, False)
+    QTimer.singleShot(700, lambda: _start_appointments_fetch(self))
     return scroll
 
 
+def _configure_appointment_table(table: QTableWidget, headers: tuple[str, ...]) -> None:
+    table.setHorizontalHeaderLabels(headers)
+    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.verticalHeader().setVisible(False)
+    for column in range(len(headers)):
+        mode = QHeaderView.ResizeMode.Stretch if column in {1, 3} else QHeaderView.ResizeMode.ResizeToContents
+        table.horizontalHeader().setSectionResizeMode(column, mode)
+
+
 def _load_appointment_config_into_ui(self: MainWindow) -> None:
-    config = load_appointment_config()
-    self._appointment_config = config
-    _replace_line_value(getattr(self, "appointment_apps_url_input", None), config.apps_script_url)
-    _replace_line_value(getattr(self, "appointment_github_token_input", None), config.github_token)
-    _replace_line_value(getattr(self, "appointment_owner_input", None), config.github_owner)
-    _replace_line_value(getattr(self, "appointment_leaders_project_input", None), str(config.leaders_project))
-    _replace_line_value(getattr(self, "appointment_deputies_project_input", None), str(config.deputies_project))
-    _replace_line_value(getattr(self, "appointment_watchers_project_input", None), str(config.watchers_project))
+    self._appointment_config = load_appointment_config()
 
 
 def _appointment_config_from_ui(self: MainWindow) -> AppointmentConfig:
-    current = getattr(self, "_appointment_config", None) or load_appointment_config()
-    return AppointmentConfig(
-        apps_script_url=_line_value(getattr(self, "appointment_apps_url_input", None)),
-        github_token=_line_value(getattr(self, "appointment_github_token_input", None)),
-        github_owner=_line_value(getattr(self, "appointment_owner_input", None)) or current.github_owner,
-        leaders_project=_line_int(getattr(self, "appointment_leaders_project_input", None), current.leaders_project),
-        deputies_project=_line_int(getattr(self, "appointment_deputies_project_input", None), current.deputies_project),
-        watchers_project=_line_int(getattr(self, "appointment_watchers_project_input", None), current.watchers_project),
-        approved_status_options=current.approved_status_options,
-        removed_status_options=current.removed_status_options,
-    )
+    config = getattr(self, "_appointment_config", None)
+    if config is None:
+        config = load_appointment_config()
+        self._appointment_config = config
+    return config
 
 
 def _save_appointment_config_from_ui(self: MainWindow) -> None:
@@ -3177,12 +3162,12 @@ def _line_int(field: QLineEdit | None, default: int) -> int:
 def _start_appointments_fetch(self: MainWindow) -> None:
     config = _appointment_config_from_ui(self)
     if not config.apps_script_url:
-        self._set_status("Вкажіть Apps Script Web App URL")
+        self._set_status("Apps Script URL не налаштовано")
         return
     refresh_btn = getattr(self, "appointment_refresh_btn", None)
     if refresh_btn is not None:
         refresh_btn.setEnabled(False)
-    self._set_status("Оновлюю список призначень...")
+    self._set_status("Оновлюю призначення та зняття...")
     thread = _AppointmentFetchThread(config)
     self._appointment_fetch_thread = thread
     thread.completed.connect(lambda records, error: _finish_appointments_fetch(self, records, error))
@@ -3200,22 +3185,74 @@ def _finish_appointments_fetch(self: MainWindow, records: list[AppointmentRecord
     self._appointment_records = records
     self._appointment_record_by_uid = {record.uid: record for record in records}
     _refresh_appointments_table(self)
-    self._set_status(f"Завантажено заявок: {len(records)}")
+    appoint_count = len([record for record in records if not record.is_removal])
+    removal_count = len([record for record in records if record.is_removal])
+    self._set_status(f"Завантажено: призначень {appoint_count}, знять {removal_count}")
+    _start_appointment_term_sync(self)
+
+
+def _start_appointment_term_sync(self: MainWindow) -> None:
+    if getattr(self, "_appointment_term_thread", None) is not None:
+        return
+    config = _appointment_config_from_ui(self)
+    if not config.github_token:
+        return
+    label = getattr(self, "appointment_sync_label", None)
+    if label is not None:
+        label.setText("Терміни перевіряються у фоні...")
+    thread = _AppointmentTermSyncThread(config)
+    self._appointment_term_thread = thread
+    thread.completed.connect(lambda count, error: _finish_appointment_term_sync(self, count, error))
+    thread.finished.connect(lambda: setattr(self, "_appointment_term_thread", None))
+    thread.start()
+
+
+def _finish_appointment_term_sync(self: MainWindow, count: int, error: str) -> None:
+    label = getattr(self, "appointment_sync_label", None)
+    if label is None:
+        return
+    if error:
+        label.setText("Терміни: фонова перевірка не завершилась")
+    else:
+        label.setText(f"Терміни оновлено: {count}")
 
 
 def _refresh_appointments_table(self: MainWindow) -> None:
-    table = getattr(self, "appointments_table", None)
-    if table is None:
+    appoint_table = getattr(self, "appointments_table", None)
+    removal_table = getattr(self, "appointment_removals_table", None)
+    if appoint_table is None or removal_table is None:
         return
     records = list(getattr(self, "_appointment_records", []))
+    appointment_records = [record for record in records if not record.is_removal]
+    removal_records = [record for record in records if record.is_removal]
+
+    _fill_appointment_table(appoint_table, appointment_records)
+    _fill_appointment_table(removal_table, removal_records)
+
+    count_label = getattr(self, "appointment_count_label", None)
+    if count_label is not None:
+        count_label.setText(f"Призначення: {len(appointment_records)} | Зняття: {len(removal_records)}")
+    active_table = _active_appointment_table(self)
+    if active_table is not None and active_table.rowCount() > 0:
+        active_table.selectRow(0)
+    _update_appointment_detail(self)
+
+
+def _select_first_appointment_row(self: MainWindow) -> None:
+    table = _active_appointment_table(self)
+    if table is not None and table.rowCount() > 0:
+        table.selectRow(0)
+    _update_appointment_detail(self)
+
+
+def _fill_appointment_table(table: QTableWidget, records: list[AppointmentRecord]) -> None:
     table.setRowCount(len(records))
     for row, record in enumerate(records):
         values = (
-            "Зняття" if record.is_removal else "Призначення",
             record.role_label,
             record.nickname,
             record.player_id,
-            record.faction,
+            record.organization_name,
             record.telegram_tag,
             record.appoint_date,
             record.source_label,
@@ -3227,16 +3264,17 @@ def _refresh_appointments_table(self: MainWindow) -> None:
                 item.setForeground(QColor("#f3a6a6"))
             table.setItem(row, column, item)
     table.resizeRowsToContents()
-    count_label = getattr(self, "appointment_count_label", None)
-    if count_label is not None:
-        count_label.setText(f"Заявок: {len(records)}")
-    if records:
-        table.selectRow(0)
-    _update_appointment_detail(self)
+
+
+def _active_appointment_table(self: MainWindow) -> QTableWidget | None:
+    tabs = getattr(self, "appointment_workflow_tabs", None)
+    if tabs is not None and tabs.currentIndex() == 1:
+        return getattr(self, "appointment_removals_table", None)
+    return getattr(self, "appointments_table", None)
 
 
 def _selected_appointment(self: MainWindow) -> AppointmentRecord | None:
-    table = getattr(self, "appointments_table", None)
+    table = _active_appointment_table(self)
     if table is None:
         return None
     row = table.currentRow()
@@ -3257,7 +3295,9 @@ def _update_appointment_detail(self: MainWindow) -> None:
     telegram_tag = getattr(self, "appointment_telegram_tag", None)
     rank_btn = getattr(self, "appointment_rank_btn", None)
     approve_btn = getattr(self, "appointment_approve_btn", None)
+    reject_btn = getattr(self, "appointment_reject_btn", None)
     remove_btn = getattr(self, "appointment_remove_btn", None)
+    reason_input = getattr(self, "appointment_reason_input", None)
 
     if record is None:
         if title is not None:
@@ -3265,10 +3305,15 @@ def _update_appointment_detail(self: MainWindow) -> None:
         if detail is not None:
             detail.setPlainText("")
         if telegram_warning is not None:
-            telegram_warning.setText("Додайте людину до Telegram групи")
+            telegram_warning.setText("Оберіть людину")
         if telegram_tag is not None:
             telegram_tag.setText("")
         _set_appointment_action_buttons_enabled(self, False)
+        for button in (rank_btn, approve_btn, reject_btn, remove_btn):
+            if button is not None:
+                button.setVisible(False)
+        if reason_input is not None:
+            reason_input.setVisible(False)
         _update_appointment_announcement(self)
         return
 
@@ -3284,29 +3329,42 @@ def _update_appointment_detail(self: MainWindow) -> None:
                     f"Дія: {action_label}",
                     f"Посада: {record.position_title}",
                     f"GitHub Project: #{project_number}",
+                    f"ID організації: {record.faction_info.faction_id if record.faction_info else '-'}",
+                    f"Назва організації: {record.organization_name or '-'}",
                     f"Дата: {record.appoint_date or '-'}",
                     f"Telegram: {record.telegram_tag or '-'}",
                     f"Discord: {record.discord or '-'}",
-                    f"Форум: {record.forum_url or '-'}",
+                    f"Ф.А.: {record.forum_url or '-'}",
                     f"Email: {record.email or '-'}",
                     f"2FA: {record.two_fa_url or '-'}",
-                    f"Google Sheets: {record.sheet_name}, рядок {record.row_number}",
+                    f"Джерело: {record.sheet_name or record.source_label}{f', рядок {record.row_number}' if record.row_number else ''}",
                 )
             )
         )
     if telegram_warning is not None:
-        telegram_warning.setText(f"Додайте {record.role_label.lower()} до Telegram групи:")
+        telegram_warning.setText(
+            f"Кікніть {record.role_label.lower()} з Telegram групи:" if record.is_removal
+            else f"Додайте {record.role_label.lower()} до Telegram групи:"
+        )
     if telegram_tag is not None:
         telegram_tag.setText(record.telegram_tag)
     _set_appointment_action_buttons_enabled(self, True)
+    if reason_input is not None:
+        reason_input.setVisible(record.is_removal)
     if rank_btn is not None:
         level = record.rank_level
+        rank_btn.setVisible(not record.is_removal)
         rank_btn.setEnabled(level is not None and bool(record.player_id))
         rank_btn.setText(f"Видати {level} ранг" if level else "Ранг не потрібен")
     if approve_btn is not None:
+        approve_btn.setVisible(not record.is_removal)
         approve_btn.setEnabled(not record.is_removal)
+    if reject_btn is not None:
+        reject_btn.setVisible(not record.is_removal)
+        reject_btn.setEnabled(not record.is_removal and record.row_number > 0)
     if remove_btn is not None:
-        remove_btn.setEnabled(True)
+        remove_btn.setVisible(record.is_removal)
+        remove_btn.setEnabled(record.is_removal)
     _update_appointment_announcement(self)
 
 
@@ -3368,20 +3426,29 @@ def _start_appointment_action(self: MainWindow, action: str) -> None:
     if record is None:
         self._set_status("Оберіть заявку")
         return
-    if action in {"approve", "remove"}:
-        config = _appointment_config_from_ui(self)
-        if not config.github_token:
-            self._set_status("Вкажіть GitHub token")
+    config = _appointment_config_from_ui(self)
+    if action in {"approve", "remove"} and not config.github_token:
+        self._set_status("GitHub token не налаштований у runtime-конфігу")
+        return
+    if action == "reject":
+        answer = QMessageBox.question(
+            self,
+            "Відхилити заявку",
+            f"Відхилити заявку {record.nickname}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
             return
-    else:
-        config = _appointment_config_from_ui(self)
-    if not config.apps_script_url:
-        self._set_status("Вкажіть Apps Script Web App URL")
+    if action == "remove" and not _appointment_note(self):
+        self._set_status("Вкажіть причину зняття")
+        if getattr(self, "appointment_reason_input", None) is not None:
+            self.appointment_reason_input.setFocus()
         return
 
-    _set_appointment_action_buttons_enabled(self, False)
     action_label = {"approve": "призначення", "reject": "відхилення", "remove": "зняття"}.get(action, action)
-    self._set_status(f"Виконую {action_label}...")
+    self._set_status(f"{action_label.capitalize()} запущено у фоні")
+    _remove_appointment_record_locally(self, record)
     thread = _AppointmentActionThread(config, action, record, _appointment_note(self))
     threads = getattr(self, "_appointment_action_threads", None)
     if not isinstance(threads, list):
@@ -3391,6 +3458,29 @@ def _start_appointment_action(self: MainWindow, action: str) -> None:
     thread.completed.connect(lambda done_action, done_record, result, error: _finish_appointment_action(self, done_action, done_record, result, error))
     thread.finished.connect(lambda finished_thread=thread: _drop_appointment_action_thread(self, finished_thread))
     thread.start()
+    if action == "approve":
+        _maybe_offer_appointment_rank(self, record)
+
+
+def _remove_appointment_record_locally(self: MainWindow, record: AppointmentRecord) -> None:
+    records = [item for item in getattr(self, "_appointment_records", []) if item.uid != record.uid]
+    self._appointment_records = records
+    self._appointment_record_by_uid = {item.uid: item for item in records}
+    _refresh_appointments_table(self)
+
+
+def _maybe_offer_appointment_rank(self: MainWindow, record: AppointmentRecord) -> None:
+    if record.rank_level is None or not record.player_id:
+        return
+    answer = QMessageBox.question(
+        self,
+        "Видати ранг",
+        f"Видати {record.rank_level} ранг для {record.nickname}[{record.player_id}] зараз?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    if answer == QMessageBox.StandardButton.Yes:
+        _issue_rank_for_record(self, record)
 
 
 def _drop_appointment_action_thread(self: MainWindow, thread: QThread) -> None:
@@ -3407,16 +3497,16 @@ def _finish_appointment_action(
     error: str,
 ) -> None:
     if error or not result.ok:
-        _set_appointment_action_buttons_enabled(self, True)
         self._set_status(f"Помилка дії: {error or result.message}")
+        if record.uid not in getattr(self, "_appointment_record_by_uid", {}):
+            records = list(getattr(self, "_appointment_records", []))
+            records.append(record)
+            self._appointment_records = records
+            self._appointment_record_by_uid = {item.uid: item for item in records}
+            _refresh_appointments_table(self)
         return
-
-    records = [item for item in getattr(self, "_appointment_records", []) if item.uid != record.uid]
-    self._appointment_records = records
-    self._appointment_record_by_uid = {item.uid: item for item in records}
-    _refresh_appointments_table(self)
     if action == "approve" and record.rank_level is not None:
-        self._set_status(f"{result.message}. Можна видати {record.rank_level} ранг.")
+        self._set_status(f"{result.message}. Ранг {record.rank_level} можна видати з гри.")
     else:
         self._set_status(result.message)
 
@@ -3426,6 +3516,10 @@ def _issue_appointment_rank(self: MainWindow) -> None:
     if record is None:
         self._set_status("Оберіть заявку")
         return
+    _issue_rank_for_record(self, record)
+
+
+def _issue_rank_for_record(self: MainWindow, record: AppointmentRecord) -> None:
     level = record.rank_level
     if level is None:
         self._set_status("Для цієї ролі ранг не потрібен")
@@ -3485,13 +3579,35 @@ def _remove_test_tab(self: MainWindow) -> None:
         _update_shell_context(self, _REPORTS_TAB_INDEX)
 
 
-def _add_extended_nav_button(self: MainWindow, label: str, index: int, key: str) -> None:
+def _navigate_to_tab_object(self: MainWindow, object_name: str) -> None:
+    tabs = getattr(self, "tabs", None)
+    if tabs is None:
+        return
+    index = _tab_index_by_object_name(tabs, object_name)
+    if index is None:
+        return
+    tabs.setCurrentIndex(index)
+    _update_shell_context(self, index)
+    _sync_extended_nav_state(self, index)
+
+
+def _bind_extended_nav_button(self: MainWindow, button: QPushButton, object_name: str, index: int) -> None:
+    button.setProperty("tabIndex", index)
+    button.setProperty("tabObjectName", object_name)
+    try:
+        button.clicked.disconnect()
+    except Exception:
+        pass
+    button.clicked.connect(lambda _checked=False, tab_object_name=object_name: _navigate_to_tab_object(self, tab_object_name))
+
+
+def _add_extended_nav_button(self: MainWindow, label: str, index: int, key: str, object_name: str) -> None:
     nav_frame = self.findChild(QFrame, "navigationBar")
     if nav_frame is None or nav_frame.layout() is None:
         return
     for button in nav_frame.findChildren(QPushButton, "navButton"):
         if button.property("extendedNavKey") == key:
-            button.setProperty("tabIndex", index)
+            _bind_extended_nav_button(self, button, object_name, index)
             return
 
     host = QWidget(nav_frame)
@@ -3508,8 +3624,7 @@ def _add_extended_nav_button(self: MainWindow, label: str, index: int, key: str)
     button.setFixedHeight(24)
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     button.setProperty("extendedNavKey", key)
-    button.setProperty("tabIndex", index)
-    button.clicked.connect(lambda _checked=False, tab_index=index: self._on_nav_clicked(tab_index))
+    _bind_extended_nav_button(self, button, object_name, index)
     host_layout.addWidget(button)
     nav_frame.layout().addWidget(host)
     _repolish(button)
@@ -3527,13 +3642,20 @@ def _sync_extended_nav_state(self: MainWindow, active_index: int | None = None) 
     buttons = self.findChildren(QPushButton, "navButton")
     for order, button in enumerate(buttons):
         tab_index = button.property("tabIndex")
-        if tab_index is None:
+        object_name = button.property("tabObjectName")
+        object_index = _tab_index_by_object_name(tabs, str(object_name)) if object_name else None
+        if object_index is not None:
+            resolved_index = object_index
+            button.setProperty("tabIndex", resolved_index)
+        elif tab_index is None:
             tab_index = order
             button.setProperty("tabIndex", tab_index)
-        try:
-            resolved_index = int(tab_index)
-        except (TypeError, ValueError):
             resolved_index = order
+        else:
+            try:
+                resolved_index = int(tab_index)
+            except (TypeError, ValueError):
+                resolved_index = order
         active = resolved_index == active_index
         button.setProperty("active", "true" if active else "false")
         _repolish(button)
@@ -3579,8 +3701,8 @@ def _ensure_extended_tabs(self: MainWindow) -> None:
     for order, button in enumerate(self.findChildren(QPushButton, "navButton")):
         if button.property("tabIndex") is None:
             button.setProperty("tabIndex", order)
-    _add_extended_nav_button(self, "Призначення", appointments_index, "appointments")
-    _add_extended_nav_button(self, "Гравці", players_index, "players")
+    _add_extended_nav_button(self, "Призначення", appointments_index, "appointments", "appointmentsTabScroll")
+    _add_extended_nav_button(self, "Гравці", players_index, "players", "playersTabScroll")
     _connect_extended_log_watcher(self)
     _sync_extended_nav_state(self)
     _apply_action_button_classes(self)
