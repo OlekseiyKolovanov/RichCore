@@ -1,0 +1,22 @@
+{
+  "base_url": "https://api.intelligence.io.solutions/api/v1",
+  "api_keys": [
+    "PASTE_FIRST_API_KEY_HERE",
+    "PASTE_SECOND_API_KEY_HERE"
+  ],
+  "preferred_models": [
+    "meta-llama/Llama-3.3-70B-Instruct"
+  ],
+  "skip_models": [],
+  "request": {
+    "temperature": 0.2,
+    "max_completion_tokens": 320,
+    "timeout_seconds": 90
+  },
+  "retrieval": {
+    "top_k": 4,
+    "chunk_size": 1600,
+    "chunk_overlap": 250,
+    "max_context_chars": 6000
+  }
+}
