@@ -561,6 +561,7 @@ def _mark_chip_button(button: QPushButton | None) -> None:
     if button is None:
         return
     button.setObjectName("quickReplyButton")
+    button.setProperty("class", "quickReply")
     button.setProperty("chipAction", "true")
     button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     _repolish(button)
@@ -653,11 +654,11 @@ def _configure_report_queue_table(table: QTableWidget | None) -> None:
     header.setStretchLastSection(False)
     header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
     header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-    table.setColumnWidth(4, 190)
-    table.setMinimumWidth(260)
+    table.setColumnWidth(4, 166)
+    table.setMinimumWidth(330)
     for label in table.findChildren(QLabel, "statusBadge"):
-        label.setMinimumWidth(168)
-        label.setMaximumWidth(182)
+        label.setMinimumWidth(132)
+        label.setMaximumWidth(154)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         _repolish(label)
@@ -671,8 +672,9 @@ def _normalize_count_badge(label: QLabel | None) -> None:
     label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     label.setMinimumHeight(28)
     label.setMaximumHeight(28)
-    label.setMinimumWidth(max(108, label.sizeHint().width() + 14))
-    label.setMaximumWidth(max(132, label.sizeHint().width() + 18))
+    width = min(148, max(96, label.sizeHint().width() + 4))
+    label.setMinimumWidth(width)
+    label.setMaximumWidth(width)
     _repolish(label)
 
 
@@ -689,6 +691,30 @@ def _find_count_badge(panel: QWidget | None, *, active_only: bool = False) -> QL
     return None
 
 
+def _active_count_text(count: int) -> str:
+    if count == 1:
+        return "1 активне"
+    last_two = count % 100
+    last = count % 10
+    if 11 <= last_two <= 14:
+        return f"{count} активних"
+    if 2 <= last <= 4:
+        return f"{count} активні"
+    return f"{count} активних"
+
+
+def _sync_vip_active_badge(self: MainWindow) -> None:
+    badge = getattr(self, "vip_alert_count_badge", None)
+    if not isinstance(badge, QLabel):
+        return
+    store = getattr(self, "vip_store", None)
+    rows = getattr(store, "rows", [])
+    count = len(rows) if rows is not None else 0
+    badge.setText(_active_count_text(count))
+    badge.setProperty("variant", "warning" if count else "empty")
+    _normalize_count_badge(badge)
+
+
 def _build_queue_header(parent: QWidget, object_name: str, title: QLabel | None, badge: QLabel | None) -> QWidget | None:
     if title is None and badge is None:
         return None
@@ -698,7 +724,8 @@ def _build_queue_header(parent: QWidget, object_name: str, title: QLabel | None,
     row.setMaximumHeight(34)
     if title is not None:
         title.setWordWrap(False)
-        title.setMinimumWidth(0)
+        title.setMinimumWidth(min(max(150, title.sizeHint().width() + 8), 260))
+        title.setMaximumWidth(16777215)
         title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(title, 1, Qt.AlignmentFlag.AlignVCenter)
     else:
@@ -1465,15 +1492,15 @@ def _report_status_info_patched(self: MainWindow, report: Report) -> tuple[str, 
     if report.answered_by_me:
         return ("ВІДПОВІВ Я", "status_answered_me")
     if report.answered_by_other:
-        return ("ВІДПОВІВ АДМІН", "status_answered_other")
+        return ("ВІДПОВІВ", "status_answered_other")
     if report.handled_by_me and report.handled_by_other:
         return ("В РОБОТІ", "status_progress")
     if report.handled_by_me:
         return ("В РОБОТІ Я", "status_progress")
     if report.handled_by_other:
-        return ("В РОБОТІ АДМІН", "status_progress")
+        return ("В РОБОТІ", "status_progress")
     if report.unanswered:
-        return ("БЕЗ ВІДПОВІДІ", "status_new")
+        return ("БЕЗ ВІДП.", "status_new")
     return ("НОВИЙ", "status_new")
 
 
@@ -2008,7 +2035,7 @@ def _rebuild_report_queue_panel(self: MainWindow) -> None:
     queue_panel = _find_splitter_panel(report_table)
     if not isinstance(queue_panel, QFrame) or report_table is None:
         return
-    queue_panel.setMinimumWidth(360)
+    queue_panel.setMinimumWidth(390)
 
     title = _direct_label_by_text(queue_panel, ("Черга репортів", "ЧЕРГА РЕПОРТІВ"))
     subtitle = None
@@ -2131,6 +2158,7 @@ def _rebuild_vip_queue_panel(self: MainWindow) -> None:
             break
     count_badge = _find_count_badge(queue_panel, active_only=True)
     clear_button = _first_button_by_normalized_text(queue_panel, "Очистити весь список")
+    _sync_vip_active_badge(self)
     header_row = _build_queue_header(queue_panel, "vipQueueHeaderRow", title, count_badge)
     layout = queue_panel.layout()
     if layout is None:
@@ -3458,9 +3486,10 @@ def _patched_refresh_table(self: MainWindow) -> None:
 def _patched_refresh_vip_ads_table(self: MainWindow) -> None:
     if callable(_original_refresh_vip_ads_table):
         _original_refresh_vip_ads_table(self)
+    _sync_vip_active_badge(self)
     for badge in self.findChildren(QLabel, "reportCountBadge"):
         text = badge.text().casefold()
-        if "активних" in text or "активні" in text:
+        if "активних" in text or "активні" in text or "активне" in text:
             _normalize_count_badge(badge)
 
 

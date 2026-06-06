@@ -8,7 +8,7 @@ Important notes:
 - Heavy obfuscation or packers often increase antivirus false positives.
 - UPX is disabled in the build to reduce false positives.
 - One-folder distribution is used for the installed tool to avoid PyInstaller `_MEI...` temp cleanup warnings and to reduce suspicious one-file unpacking behavior.
-- The best way to reduce antivirus complaints is to sign `RichCore_v12.exe` and `RichCore_Setup_*.exe` with a trusted code-signing certificate.
+- The best way to reduce antivirus complaints is to sign `RichCore_v12.exe` and `RichCore_Setup.exe` with a trusted code-signing certificate.
 
 Recommended release flow:
 

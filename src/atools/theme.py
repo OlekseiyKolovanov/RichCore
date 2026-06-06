@@ -741,8 +741,8 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
 
     QLabel#statusBadge {{
         border-radius: 12px;
-        padding: 0 10px;
-        font-size: 7.5pt;
+        padding: 0 8px;
+        font-size: 7.3pt;
         font-weight: 700;
         letter-spacing: 0.2px;
     }}
@@ -881,19 +881,21 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
         border-color: {t["NAV_BADGE_BORDER"]};
     }}
 
+    QPushButton[class="quickReply"],
     QPushButton[chipAction="true"],
     QPushButton#quickReplyButton {{
-        background: transparent;
+        background: {t["CARD_RAISED"]};
         border: 1px solid {t["ACCENT_LINE"]};
-        border-radius: 14px;
+        border-radius: 16px;
         padding: 0 12px;
-        min-height: 30px;
+        min-height: 32px;
         color: {t["SECONDARY"]};
         font-size: 8.5pt;
         font-weight: 600;
         {"letter-spacing: 0px;" if mode == "blueprint" else ""}
     }}
 
+    QPushButton[class="quickReply"]:hover,
     QPushButton[chipAction="true"]:hover,
     QPushButton#quickReplyButton:hover {{
         background: {t["ACCENT_SOFT"]};
@@ -901,6 +903,7 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
         color: {t["WINDOW_TEXT"]};
     }}
 
+    QPushButton[class="quickReply"]:pressed,
     QPushButton[chipAction="true"]:pressed,
     QPushButton#quickReplyButton:pressed {{
         background: {t["COMBO_POPUP_SELECTED"]};
