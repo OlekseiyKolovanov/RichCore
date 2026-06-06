@@ -5,6 +5,7 @@ import re
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -323,20 +324,28 @@ class GitHubProjectsClient:
 
     def fetch_removal_candidates(self) -> list[AppointmentRecord]:
         records: list[AppointmentRecord] = []
-        for number, role in (
+        targets = (
             (self._config.leaders_project, ROLE_LEADER),
             (self._config.deputies_project, ROLE_DEPUTY),
             (self._config.watchers_project, ROLE_WATCHER),
-        ):
-            project = self._project(int(number))
-            for item in self._project_items(project):
-                values = _field_values_from_item(item)
-                if _item_is_removed(values):
-                    continue
-                record = _record_from_project_item(project, item, role, int(number), values)
-                if record is not None:
-                    records.append(record)
+        )
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [executor.submit(self._fetch_removal_candidates_for_project, int(number), role) for number, role in targets]
+            for future in as_completed(futures):
+                records.extend(future.result())
         records.sort(key=lambda item: (item.role_label, item.organization_name, item.nickname))
+        return records
+
+    def _fetch_removal_candidates_for_project(self, number: int, role: str) -> list[AppointmentRecord]:
+        project = self._project(number)
+        records: list[AppointmentRecord] = []
+        for item in self._project_items(project):
+            values = _field_values_from_item(item)
+            if _item_is_removed(values):
+                continue
+            record = _record_from_project_item(project, item, role, number, values)
+            if record is not None:
+                records.append(record)
         return records
 
     def sync_active_terms(self) -> int:
@@ -592,16 +601,16 @@ class GitHubProjectsClient:
             method="POST",
         )
         raw = ""
-        for attempt in range(3):
+        for attempt in range(2):
             try:
-                with urllib.request.urlopen(request, timeout=45) as response:
+                with urllib.request.urlopen(request, timeout=24) as response:
                     raw = response.read().decode("utf-8")
                 break
             except urllib.error.HTTPError as exc:
                 details = exc.read().decode("utf-8", errors="replace")
                 raise AppointmentError(f"GitHub HTTP {exc.code}: {details or exc.reason}") from exc
             except Exception as exc:  # noqa: BLE001
-                if attempt == 2:
+                if attempt == 1:
                     raise AppointmentError(f"Не вдалося звернутися до GitHub: {exc}") from exc
                 time.sleep(0.8 * (attempt + 1))
 
@@ -621,11 +630,19 @@ class AppointmentService:
         self._apps = AppsScriptClient(config)
         self._github = GitHubProjectsClient(config)
 
+    def fetch_form_queue(self) -> list[AppointmentRecord]:
+        return _dedupe_records(self._apps.fetch_pending())
+
+    def fetch_active_records(self) -> list[AppointmentRecord]:
+        if not self._config.github_token.strip():
+            return []
+        return _dedupe_records(self._github.fetch_removal_candidates())
+
     def fetch_pending(self) -> list[AppointmentRecord]:
-        records = self._apps.fetch_pending()
+        records = self.fetch_form_queue()
         if self._config.github_token.strip():
             try:
-                records.extend(self._github.fetch_removal_candidates())
+                records.extend(self.fetch_active_records())
             except Exception:
                 pass
         return _dedupe_records(records)
@@ -650,6 +667,10 @@ class AppointmentService:
         item_id = self._github.apply_status(record, "removed", note)
         self._apps.mark_row(record, "removed", note=note, github_item_id=item_id)
         return AppointmentActionResult(True, "Зняття записано в GitHub", item_id)
+
+    def update_active(self, record: AppointmentRecord, note: str = "") -> AppointmentActionResult:
+        item_id = self._github.apply_status(record, "appointed", note)
+        return AppointmentActionResult(True, "Картку оновлено в GitHub", item_id)
 
 
 def _project_update_value(
@@ -781,7 +802,7 @@ def _record_from_project_item(
         two_fa_url="",
         github_item_id=item_id,
         status=_value_by_field_key(values, "статус") or _value_by_field_key(values, "міністерство"),
-        raw={"project": project_number},
+        raw={"project": project_number, "values": values},
     )
 
 
