@@ -203,8 +203,13 @@ class ReportStore:
 
     def _sort_rows(self) -> None:
         self._rows.sort(
-            key=lambda row: row.report.last_action_at or row.report.timestamp,
-            reverse=True,
+            key=lambda row: (
+                1 if self._report_is_finished(row.report) else 0,
+                -(
+                    (row.report.last_action_at if self._report_is_finished(row.report) else row.report.timestamp)
+                    or row.report.timestamp
+                ).timestamp(),
+            ),
         )
 
     @staticmethod

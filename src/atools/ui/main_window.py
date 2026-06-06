@@ -673,22 +673,26 @@ def _configure_report_queue_table(table: QTableWidget | None) -> None:
     if table is None or table.columnCount() < 5:
         return
 
-    visible_columns = {2, 4}
+    visible_columns = {1, 2, 4}
     for column in range(table.columnCount()):
         table.setColumnHidden(column, column not in visible_columns)
 
-    _set_header_text(table, 2, "Нік")
-    _set_header_text(table, 4, "Статус")
+    _set_header_text(table, 1, "ID")
+    _set_header_text(table, 2, "Гравець")
+    _set_header_text(table, 4, "Стан")
 
     header = table.horizontalHeader()
     header.setStretchLastSection(False)
+    header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
     header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
     header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-    table.setColumnWidth(4, 166)
-    table.setMinimumWidth(330)
+    table.setColumnWidth(1, 78)
+    table.setColumnWidth(4, 142)
+    table.setMinimumWidth(390)
+    table.verticalHeader().setDefaultSectionSize(50)
     for label in table.findChildren(QLabel, "statusBadge"):
-        label.setMinimumWidth(132)
-        label.setMaximumWidth(154)
+        label.setMinimumWidth(118)
+        label.setMaximumWidth(136)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         _repolish(label)
@@ -768,6 +772,44 @@ def _build_queue_header(parent: QWidget, object_name: str, title: QLabel | None,
 
 def _apply_queue_table_fixups(self: MainWindow) -> None:
     _configure_report_queue_table(self.findChild(QTableWidget, "reportTable"))
+
+
+def _report_key_for_report(self: MainWindow, report: Report | None) -> str:
+    if report is None:
+        return ""
+    resolver = getattr(self, "_report_key", None)
+    if callable(resolver):
+        try:
+            return str(resolver(report) or "")
+        except Exception:
+            return ""
+    return ""
+
+
+def _select_report_by_key(self: MainWindow, report_key: str) -> bool:
+    if not report_key:
+        return False
+    table = self.findChild(QTableWidget, "reportTable")
+    if table is None:
+        return False
+
+    for row in range(table.rowCount()):
+        item = table.item(row, 0)
+        if item is None:
+            continue
+        if str(item.data(Qt.ItemDataRole.UserRole) or "") != report_key:
+            continue
+
+        table.blockSignals(True)
+        try:
+            table.selectRow(row)
+        finally:
+            table.blockSignals(False)
+        handler = getattr(self, "_on_report_selection_changed", None)
+        if callable(handler):
+            handler()
+        return True
+    return False
 
 
 def _update_shell_context(self: MainWindow, index: int) -> None:
@@ -1504,7 +1546,9 @@ def _format_vip_punishment_command(self: MainWindow, alert: VipAdAlert) -> str:
     self.settings.vip_ad_punish_mode = "admin"
     _set_radio_checked(getattr(self, "vip_mode_assistant_radio", None), False)
     _set_radio_checked(getattr(self, "vip_mode_admin_radio", None), True)
-    return _strip_slash_command(f"pmute {alert.player_id} 30 Реклама у VIP чаті")
+    keywords = " ".join(alert.matched_keywords).casefold()
+    reason = "Образлива лексика у VIP чаті" if "образ" in keywords else "Реклама у VIP чаті"
+    return _strip_slash_command(f"pmute {alert.player_id} 30 {reason}")
 
 
 def _on_vip_mode_changed(self: MainWindow, _checked: bool) -> None:
@@ -1541,6 +1585,7 @@ def _send_reply_patched(self: MainWindow) -> None:
         self._set_status("Потрібно обрати репорт і ввести текст")
         return
 
+    report_key = _report_key_for_report(self, report)
     command = self._format_pm_command(report.player_id, text)
     try:
         self.sender.send_reply_command(
@@ -1554,8 +1599,11 @@ def _send_reply_patched(self: MainWindow) -> None:
             marker(report, text)
         else:
             self.store.mark_answered_by_me(report.player_id, text)
+        if report_key:
+            self._sticky_report_key = report_key
         self.reply_input.clear()
         self._refresh_table()
+        _select_report_by_key(self, report_key)
         self._set_status(f"Відправлено для {report.player_name}[{report.player_id}]")
     except Exception as exc:
         self._logger.exception("Failed to send reply")
@@ -2068,6 +2116,11 @@ def _rebuild_report_queue_panel(self: MainWindow) -> None:
     queue_panel.setMinimumWidth(390)
 
     title = _direct_label_by_text(queue_panel, ("Черга репортів", "ЧЕРГА РЕПОРТІВ"))
+    if title is None:
+        title = QLabel("Черга репортів", queue_panel)
+        title.setProperty("class", "sectionTitle")
+    else:
+        title.setText("Черга репортів")
     subtitle = None
     for label in queue_panel.findChildren(QLabel, options=Qt.FindChildOption.FindDirectChildrenOnly):
         text = label.text().strip()
@@ -2077,9 +2130,7 @@ def _rebuild_report_queue_panel(self: MainWindow) -> None:
     count_badge = _find_count_badge(queue_panel)
     clear_button = _first_button_by_text(queue_panel, "Очистити весь список")
     _configure_report_queue_table(report_table)
-    if count_badge is not None:
-        _detach_widget(count_badge)
-    header_row = _build_queue_header(queue_panel, "reportQueueHeaderRow", title, None)
+    header_row = _build_queue_header(queue_panel, "reportQueueHeaderRow", title, count_badge)
     layout = queue_panel.layout()
     if layout is None:
         layout = QVBoxLayout(queue_panel)
@@ -2118,6 +2169,14 @@ def _rebuild_report_detail_panel(self: MainWindow) -> None:
     teleport_button = _first_button_by_text(panel, "Телепорт") or _first_button_by_text(panel, "ТЕЛЕПОРТ")
     colleague_button = _first_button_by_text(panel, "Відповідь колеги") or _first_button_by_text(panel, "ВІДПОВІДЬ КОЛЕГИ")
     send_button = _first_button_by_text(panel, "Відправити") or _first_button_by_text(panel, "ВІДПРАВИТИ ВІДПОВІДЬ")
+    copy_id_button = getattr(self, "report_copy_id_btn", None)
+    if copy_id_button is None:
+        copy_id_button = QPushButton("Копіювати ID", panel)
+        copy_id_button.setObjectName("reportCopyIdButton")
+        copy_id_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_id_button.setProperty("class", "secondaryAction")
+        copy_id_button.clicked.connect(lambda: _copy_selected_report_id(self))
+        self.report_copy_id_btn = copy_id_button
     ai_title = _first_label_by_text(panel, "AI-чернетка") or _first_label_by_text(panel, "AI-ЧЕРНЕТКА")
     ai_status = None
     for label in panel.findChildren(QLabel):
@@ -2139,6 +2198,11 @@ def _rebuild_report_detail_panel(self: MainWindow) -> None:
     ai_header_row.setFixedHeight(22)
 
     action_row, action_layout = _ensure_row_widget(panel, "reportActionRow", 8)
+    if copy_id_button is not None:
+        copy_id_button.setMinimumWidth(118)
+        copy_id_button.setMaximumWidth(132)
+        copy_id_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        action_layout.addWidget(copy_id_button)
     if teleport_button is not None:
         teleport_button.setMinimumWidth(118)
         teleport_button.setMaximumWidth(118)
@@ -2312,6 +2376,7 @@ def _rebuild_binds_layout(self: MainWindow) -> None:
             current = current.parentWidget()
         if isinstance(current, QFrame):
             _rebuild_bind_panel(current)
+    _beautify_bind_tables(self)
 
 
 def _compact_button_metrics(self: MainWindow) -> None:
@@ -2791,19 +2856,23 @@ def _build_players_tab(self: MainWindow) -> QScrollArea:
     self.lookup_btn.clicked.connect(lambda: _start_player_lookup(self, _line_value(self.player_target_input)))
     self.from_report_player_btn = QPushButton("З репорту", target_row)
     self.from_report_player_btn.clicked.connect(lambda: _fill_player_from_report(self))
+    self.player_sp_btn = QPushButton("SP до гравця", target_row)
+    self.player_sp_btn.clicked.connect(lambda: _player_sp(self))
     self.target_id_badge = QLabel("ID: -", target_row)
     self.target_id_badge.setObjectName("targetBadge")
     self.target_name_label = QLabel("-", target_row)
     self.target_name_label.setObjectName("targetBadge")
 
-    for button in (self.lookup_btn, self.from_report_player_btn):
+    for button in (self.lookup_btn, self.from_report_player_btn, self.player_sp_btn):
         button.setCursor(Qt.CursorShape.PointingHandCursor)
     self.lookup_btn.setProperty("class", "primaryAction")
     self.from_report_player_btn.setProperty("class", "secondaryAction")
+    self.player_sp_btn.setProperty("class", "secondaryAction")
 
     target_row_layout.addWidget(self.player_target_input, 1)
     target_row_layout.addWidget(self.lookup_btn)
     target_row_layout.addWidget(self.from_report_player_btn)
+    target_row_layout.addWidget(self.player_sp_btn)
     target_row_layout.addWidget(self.target_id_badge)
     target_row_layout.addWidget(self.target_name_label)
     target_layout.addWidget(target_row)
@@ -3038,6 +3107,41 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
     action_layout.addWidget(self.appointment_sync_label)
     action_layout.addStretch(1)
     top_layout.addWidget(action_row)
+
+    filters = QWidget(top_card)
+    filters_layout = QGridLayout(filters)
+    filters_layout.setContentsMargins(0, 0, 0, 0)
+    filters_layout.setSpacing(8)
+    self.appointment_search_input = _make_line_edit(filters, "Пошук: NickName, ID, Telegram, Discord, організація")
+    self.appointment_role_filter = QComboBox(filters)
+    self.appointment_role_filter.addItem("Усі ролі", "")
+    self.appointment_role_filter.addItem("Лідери", ROLE_LEADER)
+    self.appointment_role_filter.addItem("Заступники", ROLE_DEPUTY)
+    self.appointment_role_filter.addItem("Слідкуючі", ROLE_WATCHER)
+    self.appointment_org_filter = QComboBox(filters)
+    self.appointment_org_filter.addItem("Усі організації", "")
+    for option in _FACTION_OPTIONS:
+        code = option.split(" - ", 1)[-1].strip()
+        self.appointment_org_filter.addItem(option, code)
+    self.appointment_contact_filter = QComboBox(filters)
+    self.appointment_contact_filter.addItem("Усі контакти", "")
+    self.appointment_contact_filter.addItem("Є Telegram", "telegram")
+    self.appointment_contact_filter.addItem("Є Discord", "discord")
+    self.appointment_contact_filter.addItem("Без контакту", "missing")
+    self.appointment_reset_filter_btn = QPushButton("Скинути", filters)
+    self.appointment_reset_filter_btn.setProperty("class", "secondaryAction")
+    self.appointment_search_input.textChanged.connect(lambda _text: _refresh_appointments_table(self))
+    self.appointment_role_filter.currentIndexChanged.connect(lambda _index: _refresh_appointments_table(self))
+    self.appointment_org_filter.currentIndexChanged.connect(lambda _index: _refresh_appointments_table(self))
+    self.appointment_contact_filter.currentIndexChanged.connect(lambda _index: _refresh_appointments_table(self))
+    self.appointment_reset_filter_btn.clicked.connect(lambda: _reset_appointment_filters(self))
+    filters_layout.addWidget(self.appointment_search_input, 0, 0, 1, 3)
+    filters_layout.addWidget(self.appointment_role_filter, 0, 3)
+    filters_layout.addWidget(self.appointment_org_filter, 0, 4)
+    filters_layout.addWidget(self.appointment_contact_filter, 1, 0)
+    filters_layout.addWidget(self.appointment_reset_filter_btn, 1, 1)
+    filters_layout.setColumnStretch(2, 1)
+    top_layout.addWidget(filters)
     root.addWidget(top_card)
 
     body = QWidget(host)
@@ -3047,8 +3151,8 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
 
     queue_card, queue_layout = _make_card(body, "Нові заявки")
     queue_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    self.appointments_table = QTableWidget(0, 7, queue_card)
-    _configure_appointment_table(self.appointments_table, ("Роль", "NickName", "ID", "Організація", "Telegram", "Дата", "Джерело"))
+    self.appointments_table = QTableWidget(0, 5, queue_card)
+    _configure_appointment_table(self.appointments_table, ("Заявка", "Орг.", "Контакти", "Дата", "Джерело"))
     self.appointments_table.currentCellChanged.connect(lambda *_args: _update_appointment_detail(self))
     queue_layout.addWidget(self.appointments_table)
 
@@ -3074,6 +3178,20 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
     telegram_layout.addWidget(self.appointment_telegram_warning, 1)
     telegram_layout.addWidget(self.appointment_telegram_tag)
     telegram_layout.addWidget(self.appointment_copy_telegram_btn)
+
+    discord_row = QWidget(detail_card)
+    discord_layout = QHBoxLayout(discord_row)
+    discord_layout.setContentsMargins(0, 0, 0, 0)
+    discord_layout.setSpacing(8)
+    self.appointment_discord_warning = QLabel("Discord тег:", discord_row)
+    self.appointment_discord_warning.setWordWrap(True)
+    self.appointment_discord_tag = QLineEdit(discord_row)
+    self.appointment_discord_tag.setReadOnly(True)
+    self.appointment_copy_discord_btn = QPushButton("Копіювати Discord", discord_row)
+    self.appointment_copy_discord_btn.clicked.connect(lambda: _copy_appointment_discord(self))
+    discord_layout.addWidget(self.appointment_discord_warning, 1)
+    discord_layout.addWidget(self.appointment_discord_tag)
+    discord_layout.addWidget(self.appointment_copy_discord_btn)
 
     self.appointment_reason_input = _make_line_edit(detail_card, "Причина зняття / нотатка")
     self.appointment_reason_input.textChanged.connect(lambda _text: _update_appointment_announcement(self))
@@ -3108,6 +3226,7 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
     detail_layout.addWidget(self.appointment_detail_title)
     detail_layout.addWidget(self.appointment_detail_text)
     detail_layout.addWidget(telegram_row)
+    detail_layout.addWidget(discord_row)
     detail_layout.addWidget(self.appointment_reason_input)
     detail_layout.addWidget(self.appointment_announcement_preview)
     detail_layout.addLayout(button_grid)
@@ -3156,7 +3275,7 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
     controls_layout.setContentsMargins(0, 0, 0, 0)
     controls_layout.setSpacing(8)
 
-    self.active_appointment_search_input = _make_line_edit(controls, "Пошук: NickName, ID, Telegram, організація")
+    self.active_appointment_search_input = _make_line_edit(controls, "Пошук: NickName, ID, Telegram, Discord, організація")
     self.active_appointment_role_filter = QComboBox(controls)
     self.active_appointment_role_filter.addItem("Усі ролі", "")
     self.active_appointment_role_filter.addItem("Лідери", ROLE_LEADER)
@@ -3167,28 +3286,46 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
     for option in _FACTION_OPTIONS:
         code = option.split(" - ", 1)[-1].strip()
         self.active_appointment_org_filter.addItem(option, code)
+    self.active_appointment_term_filter = QComboBox(controls)
+    self.active_appointment_term_filter.addItem("Усі терміни", "")
+    self.active_appointment_term_filter.addItem("1/3", "1/3")
+    self.active_appointment_term_filter.addItem("2/3", "2/3")
+    self.active_appointment_term_filter.addItem("3/3", "3/3")
+    self.active_appointment_contact_filter = QComboBox(controls)
+    self.active_appointment_contact_filter.addItem("Усі контакти", "")
+    self.active_appointment_contact_filter.addItem("Є Telegram", "telegram")
+    self.active_appointment_contact_filter.addItem("Є Discord", "discord")
+    self.active_appointment_contact_filter.addItem("Без контакту", "missing")
 
     self.active_appointment_refresh_btn = QPushButton("Оновити активних", controls)
     self.active_appointment_sync_terms_btn = QPushButton("Синхронізувати терміни", controls)
+    self.active_appointment_reset_filter_btn = QPushButton("Скинути", controls)
     self.active_appointment_count_label = QLabel("Активних: -", controls)
     self.active_appointment_sync_label = QLabel("GitHub список ще не завантажено", controls)
     self.active_appointment_sync_label.setProperty("class", "muted")
     self.active_appointment_refresh_btn.setProperty("class", "primaryAction")
     self.active_appointment_sync_terms_btn.setProperty("class", "secondaryAction")
+    self.active_appointment_reset_filter_btn.setProperty("class", "secondaryAction")
 
     self.active_appointment_search_input.textChanged.connect(lambda _text: _refresh_active_appointments_table(self))
     self.active_appointment_role_filter.currentIndexChanged.connect(lambda _index: _refresh_active_appointments_table(self))
     self.active_appointment_org_filter.currentIndexChanged.connect(lambda _index: _refresh_active_appointments_table(self))
+    self.active_appointment_term_filter.currentIndexChanged.connect(lambda _index: _refresh_active_appointments_table(self))
+    self.active_appointment_contact_filter.currentIndexChanged.connect(lambda _index: _refresh_active_appointments_table(self))
     self.active_appointment_refresh_btn.clicked.connect(lambda: _start_active_appointments_fetch(self))
     self.active_appointment_sync_terms_btn.clicked.connect(lambda: _start_appointment_term_sync(self))
+    self.active_appointment_reset_filter_btn.clicked.connect(lambda: _reset_active_appointment_filters(self))
 
     controls_layout.addWidget(self.active_appointment_search_input, 0, 0, 1, 3)
     controls_layout.addWidget(self.active_appointment_role_filter, 0, 3)
     controls_layout.addWidget(self.active_appointment_org_filter, 0, 4)
-    controls_layout.addWidget(self.active_appointment_refresh_btn, 1, 0)
-    controls_layout.addWidget(self.active_appointment_sync_terms_btn, 1, 1)
-    controls_layout.addWidget(self.active_appointment_count_label, 1, 2)
-    controls_layout.addWidget(self.active_appointment_sync_label, 1, 3, 1, 2)
+    controls_layout.addWidget(self.active_appointment_term_filter, 1, 0)
+    controls_layout.addWidget(self.active_appointment_contact_filter, 1, 1)
+    controls_layout.addWidget(self.active_appointment_reset_filter_btn, 1, 2)
+    controls_layout.addWidget(self.active_appointment_refresh_btn, 2, 0)
+    controls_layout.addWidget(self.active_appointment_sync_terms_btn, 2, 1)
+    controls_layout.addWidget(self.active_appointment_count_label, 2, 2)
+    controls_layout.addWidget(self.active_appointment_sync_label, 2, 3, 1, 2)
     top_layout.addWidget(controls)
     root.addWidget(top_card)
 
@@ -3199,10 +3336,10 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
 
     list_card, list_layout = _make_card(body, "Активні призначені")
     list_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    self.active_appointments_table = QTableWidget(0, 8, list_card)
+    self.active_appointments_table = QTableWidget(0, 5, list_card)
     _configure_appointment_table(
         self.active_appointments_table,
-        ("Роль", "NickName", "ID", "Організація", "Термін", "Telegram", "Дата", "Project"),
+        ("Людина", "Орг.", "Термін", "Контакти", "Project"),
     )
     self.active_appointments_table.currentCellChanged.connect(lambda *_args: _update_active_appointment_detail(self))
     list_layout.addWidget(self.active_appointments_table)
@@ -3230,6 +3367,20 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
     telegram_layout.addWidget(self.active_appointment_telegram_tag)
     telegram_layout.addWidget(self.active_appointment_copy_telegram_btn)
 
+    discord_row = QWidget(detail_card)
+    discord_layout = QHBoxLayout(discord_row)
+    discord_layout.setContentsMargins(0, 0, 0, 0)
+    discord_layout.setSpacing(8)
+    self.active_appointment_discord_warning = QLabel("Discord тег:", discord_row)
+    self.active_appointment_discord_warning.setWordWrap(True)
+    self.active_appointment_discord_tag = QLineEdit(discord_row)
+    self.active_appointment_discord_tag.setReadOnly(True)
+    self.active_appointment_copy_discord_btn = QPushButton("Копіювати Discord", discord_row)
+    self.active_appointment_copy_discord_btn.clicked.connect(lambda: _copy_active_appointment_discord(self))
+    discord_layout.addWidget(self.active_appointment_discord_warning, 1)
+    discord_layout.addWidget(self.active_appointment_discord_tag)
+    discord_layout.addWidget(self.active_appointment_copy_discord_btn)
+
     self.active_appointment_reason_input = _make_line_edit(detail_card, "Причина зняття")
     self.active_appointment_reason_input.textChanged.connect(lambda _text: _update_active_appointment_announcement(self))
     self.active_appointment_announcement_preview = QPlainTextEdit(detail_card)
@@ -3255,6 +3406,7 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
     detail_layout.addWidget(self.active_appointment_detail_title)
     detail_layout.addWidget(self.active_appointment_detail_text)
     detail_layout.addWidget(telegram_row)
+    detail_layout.addWidget(discord_row)
     detail_layout.addWidget(self.active_appointment_reason_input)
     detail_layout.addWidget(self.active_appointment_announcement_preview)
     detail_layout.addLayout(button_grid)
@@ -3278,10 +3430,17 @@ def _configure_appointment_table(table: QTableWidget, headers: tuple[str, ...]) 
     table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.setAlternatingRowColors(True)
+    table.setShowGrid(False)
+    table.setTextElideMode(Qt.TextElideMode.ElideRight)
     table.verticalHeader().setVisible(False)
+    table.verticalHeader().setDefaultSectionSize(58)
     for column in range(len(headers)):
-        mode = QHeaderView.ResizeMode.Stretch if column in {1, 3} else QHeaderView.ResizeMode.ResizeToContents
+        mode = QHeaderView.ResizeMode.Stretch if column in {0, 3} else QHeaderView.ResizeMode.ResizeToContents
         table.horizontalHeader().setSectionResizeMode(column, mode)
+    table.horizontalHeader().setHighlightSections(False)
+    table.horizontalHeader().setStretchLastSection(False)
+    _repolish(table)
 
 
 def _load_appointment_config_into_ui(self: MainWindow) -> None:
@@ -3490,21 +3649,83 @@ def _active_record_term_text(record: AppointmentRecord) -> str:
     return _active_record_value(record, "Кількість термінів") or "-"
 
 
+def _record_organization_tag(record: AppointmentRecord) -> str:
+    return getattr(record, "organization_tag", "") or record.organization_name or record.faction or "-"
+
+
+def _record_contact_summary(record: AppointmentRecord) -> str:
+    contacts = []
+    if record.telegram_tag:
+        contacts.append(f"TG {record.telegram_tag}")
+    if record.discord:
+        contacts.append(f"DS {record.discord}")
+    return " | ".join(contacts) if contacts else "-"
+
+
+def _set_table_text_item(table: QTableWidget, row: int, column: int, value: str, uid: str, tooltip: str = "") -> None:
+    item = QTableWidgetItem(value)
+    item.setData(Qt.ItemDataRole.UserRole, uid)
+    item.setToolTip(tooltip or value)
+    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+    table.setItem(row, column, item)
+
+
+def _combo_data(combo: QComboBox | None) -> str:
+    return str(combo.currentData() or "") if combo is not None else ""
+
+
+def _contact_filter_matches(record: AppointmentRecord, mode: str) -> bool:
+    if mode == "telegram":
+        return bool(record.telegram_tag)
+    if mode == "discord":
+        return bool(record.discord)
+    if mode == "missing":
+        return not record.telegram_tag and not record.discord
+    return True
+
+
+def _reset_appointment_filters(self: MainWindow) -> None:
+    for combo_name in ("appointment_role_filter", "appointment_org_filter", "appointment_contact_filter"):
+        combo = getattr(self, combo_name, None)
+        if combo is not None:
+            combo.setCurrentIndex(0)
+    field = getattr(self, "appointment_search_input", None)
+    if field is not None:
+        field.clear()
+    _refresh_appointments_table(self)
+
+
+def _reset_active_appointment_filters(self: MainWindow) -> None:
+    for combo_name in (
+        "active_appointment_role_filter",
+        "active_appointment_org_filter",
+        "active_appointment_term_filter",
+        "active_appointment_contact_filter",
+    ):
+        combo = getattr(self, combo_name, None)
+        if combo is not None:
+            combo.setCurrentIndex(0)
+    field = getattr(self, "active_appointment_search_input", None)
+    if field is not None:
+        field.clear()
+    _refresh_active_appointments_table(self)
+
+
 def _active_appointment_matches_filters(self: MainWindow, record: AppointmentRecord) -> bool:
     query = _line_value(getattr(self, "active_appointment_search_input", None)).casefold()
-    role_filter = ""
-    role_combo = getattr(self, "active_appointment_role_filter", None)
-    if role_combo is not None:
-        role_filter = str(role_combo.currentData() or "")
-    org_filter = ""
-    org_combo = getattr(self, "active_appointment_org_filter", None)
-    if org_combo is not None:
-        org_filter = str(org_combo.currentData() or "")
+    role_filter = _combo_data(getattr(self, "active_appointment_role_filter", None))
+    org_filter = _combo_data(getattr(self, "active_appointment_org_filter", None))
+    term_filter = _combo_data(getattr(self, "active_appointment_term_filter", None))
+    contact_filter = _combo_data(getattr(self, "active_appointment_contact_filter", None))
 
     if role_filter and record.role != role_filter:
         return False
     info = record.faction_info
     if org_filter and (info is None or info.code != org_filter):
+        return False
+    if term_filter and _active_record_term_text(record) != term_filter:
+        return False
+    if not _contact_filter_matches(record, contact_filter):
         return False
     if not query:
         return True
@@ -3513,6 +3734,7 @@ def _active_appointment_matches_filters(self: MainWindow, record: AppointmentRec
             record.nickname,
             record.player_id,
             record.role_label,
+            _record_organization_tag(record),
             record.organization_name,
             record.faction,
             record.telegram_tag,
@@ -3526,7 +3748,7 @@ def _active_appointment_matches_filters(self: MainWindow, record: AppointmentRec
 
 def _filtered_active_appointment_records(self: MainWindow) -> list[AppointmentRecord]:
     records = [record for record in _all_active_appointment_records(self) if _active_appointment_matches_filters(self, record)]
-    records.sort(key=lambda item: (item.role_label, item.organization_name, item.nickname))
+    records.sort(key=lambda item: (item.role_label, _record_organization_tag(item), item.nickname))
     return records
 
 
@@ -3553,24 +3775,34 @@ def _fill_active_appointment_table(table: QTableWidget, records: list[Appointmen
         table.setRowCount(len(records))
         for row, record in enumerate(records):
             values = (
-                record.role_label,
-                record.nickname,
-                record.player_id,
-                record.organization_name,
+                f"{record.nickname}\n{record.role_label} | ID {record.player_id or '-'}",
+                _record_organization_tag(record),
                 _active_record_term_text(record),
-                record.telegram_tag,
-                record.appoint_date,
+                _record_contact_summary(record),
                 _active_record_project_label(config, record),
             )
             for column, value in enumerate(values):
+                tooltip = "\n".join(
+                    (
+                        f"{record.nickname} [{record.player_id}]",
+                        f"Посада: {record.position_title}",
+                        f"Організація: {record.organization_name}",
+                        f"Telegram: {record.telegram_tag or '-'}",
+                        f"Discord: {record.discord or '-'}",
+                    )
+                )
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, record.uid)
+                item.setToolTip(tooltip)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
                 if record.source_key and not record.source_key.startswith("github:"):
                     item.setForeground(QColor("#f3a6a6"))
                 table.setItem(row, column, item)
     finally:
         table.blockSignals(False)
     table.resizeRowsToContents()
+    for row in range(table.rowCount()):
+        table.setRowHeight(row, max(58, table.rowHeight(row)))
 
 
 def _selected_active_appointment(self: MainWindow) -> AppointmentRecord | None:
@@ -3592,6 +3824,7 @@ def _update_active_appointment_detail(self: MainWindow) -> None:
     title = getattr(self, "active_appointment_detail_title", None)
     detail = getattr(self, "active_appointment_detail_text", None)
     telegram_tag = getattr(self, "active_appointment_telegram_tag", None)
+    discord_tag = getattr(self, "active_appointment_discord_tag", None)
     if record is None:
         if title is not None:
             title.setText("Оберіть людину")
@@ -3599,6 +3832,8 @@ def _update_active_appointment_detail(self: MainWindow) -> None:
             detail.setPlainText("")
         if telegram_tag is not None:
             telegram_tag.setText("")
+        if discord_tag is not None:
+            discord_tag.setText("")
         _set_active_appointment_buttons_enabled(self, False)
         _update_active_appointment_announcement(self)
         return
@@ -3628,6 +3863,8 @@ def _update_active_appointment_detail(self: MainWindow) -> None:
         )
     if telegram_tag is not None:
         telegram_tag.setText(record.telegram_tag)
+    if discord_tag is not None:
+        discord_tag.setText(record.discord)
     _set_active_appointment_buttons_enabled(self, True)
     _update_active_appointment_announcement(self)
 
@@ -3638,6 +3875,7 @@ def _set_active_appointment_buttons_enabled(self: MainWindow, enabled: bool) -> 
         "active_appointment_update_btn",
         "active_appointment_copy_announcement_btn",
         "active_appointment_copy_telegram_btn",
+        "active_appointment_copy_discord_btn",
     ):
         button = getattr(self, name, None)
         if button is not None:
@@ -3665,6 +3903,11 @@ def _update_active_appointment_announcement(self: MainWindow) -> None:
 def _copy_active_appointment_telegram(self: MainWindow) -> None:
     record = _selected_active_appointment(self)
     _copy_text_to_clipboard(self, record.telegram_tag if record else "", "Telegram тег скопійовано")
+
+
+def _copy_active_appointment_discord(self: MainWindow) -> None:
+    record = _selected_active_appointment(self)
+    _copy_text_to_clipboard(self, record.discord if record else "", "Discord тег скопійовано")
 
 
 def _copy_active_appointment_announcement(self: MainWindow) -> None:
@@ -3745,18 +3988,62 @@ def _finish_active_appointment_action(
         _start_active_appointments_fetch(self)
 
 
+def _appointment_matches_filters(self: MainWindow, record: AppointmentRecord) -> bool:
+    query = _line_value(getattr(self, "appointment_search_input", None)).casefold()
+    role_filter = _combo_data(getattr(self, "appointment_role_filter", None))
+    org_filter = _combo_data(getattr(self, "appointment_org_filter", None))
+    contact_filter = _combo_data(getattr(self, "appointment_contact_filter", None))
+
+    if role_filter and record.role != role_filter:
+        return False
+    info = record.faction_info
+    if org_filter and (info is None or info.code != org_filter):
+        return False
+    if not _contact_filter_matches(record, contact_filter):
+        return False
+    if not query:
+        return True
+
+    haystack = " ".join(
+        (
+            record.nickname,
+            record.player_id,
+            record.role_label,
+            record.position_title,
+            _record_organization_tag(record),
+            record.organization_name,
+            record.faction,
+            record.telegram_tag,
+            record.discord,
+            record.email,
+            record.source_label,
+            record.sheet_name,
+        )
+    ).casefold()
+    return query in haystack
+
+
+def _filtered_appointment_records(self: MainWindow) -> list[AppointmentRecord]:
+    records = [record for record in getattr(self, "_appointment_records", []) if not record.is_removal]
+    records = [record for record in records if _appointment_matches_filters(self, record)]
+    records.sort(key=lambda item: (item.role_label, _record_organization_tag(item), item.nickname))
+    return records
+
+
 def _refresh_appointments_table(self: MainWindow) -> None:
     appoint_table = getattr(self, "appointments_table", None)
     if appoint_table is None:
         return
     records = list(getattr(self, "_appointment_records", []))
     appointment_records = [record for record in records if not record.is_removal]
+    filtered_records = _filtered_appointment_records(self)
 
-    _fill_appointment_table(appoint_table, appointment_records)
+    self._appointment_record_by_uid = {record.uid: record for record in filtered_records}
+    _fill_appointment_table(appoint_table, filtered_records)
 
     count_label = getattr(self, "appointment_count_label", None)
     if count_label is not None:
-        count_label.setText(f"Нових заявок: {len(appointment_records)}")
+        count_label.setText(f"Показано: {len(filtered_records)} / {len(appointment_records)}")
     active_table = getattr(self, "appointments_table", None)
     if active_table is not None and active_table.rowCount() > 0 and active_table.currentRow() < 0:
         active_table.selectRow(0)
@@ -3776,23 +4063,35 @@ def _fill_appointment_table(table: QTableWidget, records: list[AppointmentRecord
         table.setRowCount(len(records))
         for row, record in enumerate(records):
             values = (
-                record.role_label,
-                record.nickname,
-                record.player_id,
-                record.organization_name,
-                record.telegram_tag,
+                f"{record.nickname}\n{record.role_label} | ID {record.player_id or '-'}",
+                _record_organization_tag(record),
+                _record_contact_summary(record),
                 record.appoint_date,
                 record.source_label,
             )
             for column, value in enumerate(values):
+                tooltip = "\n".join(
+                    (
+                        f"{record.nickname} [{record.player_id}]",
+                        f"Посада: {record.position_title}",
+                        f"Організація: {record.organization_name}",
+                        f"Telegram: {record.telegram_tag or '-'}",
+                        f"Discord: {record.discord or '-'}",
+                        f"Джерело: {record.sheet_name or record.source_label}",
+                    )
+                )
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, record.uid)
+                item.setToolTip(tooltip)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
                 if record.is_removal:
                     item.setForeground(QColor("#f3a6a6"))
                 table.setItem(row, column, item)
     finally:
         table.blockSignals(False)
     table.resizeRowsToContents()
+    for row in range(table.rowCount()):
+        table.setRowHeight(row, max(58, table.rowHeight(row)))
 
 
 def _active_appointment_table(self: MainWindow) -> QTableWidget | None:
@@ -3819,6 +4118,7 @@ def _update_appointment_detail(self: MainWindow) -> None:
     detail = getattr(self, "appointment_detail_text", None)
     telegram_warning = getattr(self, "appointment_telegram_warning", None)
     telegram_tag = getattr(self, "appointment_telegram_tag", None)
+    discord_tag = getattr(self, "appointment_discord_tag", None)
     rank_btn = getattr(self, "appointment_rank_btn", None)
     approve_btn = getattr(self, "appointment_approve_btn", None)
     reject_btn = getattr(self, "appointment_reject_btn", None)
@@ -3834,6 +4134,8 @@ def _update_appointment_detail(self: MainWindow) -> None:
             telegram_warning.setText("Оберіть людину")
         if telegram_tag is not None:
             telegram_tag.setText("")
+        if discord_tag is not None:
+            discord_tag.setText("")
         _set_appointment_action_buttons_enabled(self, False)
         for button in (rank_btn, approve_btn, reject_btn, remove_btn):
             if button is not None:
@@ -3874,6 +4176,8 @@ def _update_appointment_detail(self: MainWindow) -> None:
         )
     if telegram_tag is not None:
         telegram_tag.setText(record.telegram_tag)
+    if discord_tag is not None:
+        discord_tag.setText(record.discord)
     _set_appointment_action_buttons_enabled(self, True)
     if reason_input is not None:
         reason_input.setVisible(record.is_removal)
@@ -3901,6 +4205,7 @@ def _set_appointment_action_buttons_enabled(self: MainWindow, enabled: bool) -> 
         "appointment_remove_btn",
         "appointment_copy_announcement_btn",
         "appointment_copy_telegram_btn",
+        "appointment_copy_discord_btn",
         "appointment_rank_btn",
     ):
         button = getattr(self, name, None)
@@ -3938,9 +4243,19 @@ def _copy_text_to_clipboard(self: MainWindow, text: str, status_message: str) ->
     self._set_status(status_message)
 
 
+def _copy_selected_report_id(self: MainWindow) -> None:
+    report = self._target_report()
+    _copy_text_to_clipboard(self, str(report.player_id) if report else "", "ID гравця з репорту скопійовано")
+
+
 def _copy_appointment_telegram(self: MainWindow) -> None:
     record = _selected_appointment(self)
     _copy_text_to_clipboard(self, record.telegram_tag if record else "", "Telegram тег скопійовано")
+
+
+def _copy_appointment_discord(self: MainWindow) -> None:
+    record = _selected_appointment(self)
+    _copy_text_to_clipboard(self, record.discord if record else "", "Discord тег скопійовано")
 
 
 def _copy_appointment_announcement(self: MainWindow) -> None:
@@ -4418,6 +4733,10 @@ def _player_clear_faction(self: MainWindow) -> None:
     _with_target_id(self, lambda pid: _run_console_action(self, "Звільнення з фракції", f"setfaction {pid} 0", f"offsetfaction {pid} 0"))
 
 
+def _player_sp(self: MainWindow) -> None:
+    _with_target_id(self, lambda pid: _run_console_action(self, "SP до гравця", f"sp {pid}"))
+
+
 def _player_set_faction_level(self: MainWindow) -> None:
     level = self.faction_level_combo.currentText().strip()
     if level not in {str(index) for index in range(1, 13)}:
@@ -4639,6 +4958,7 @@ _original_save_settings_from_ui = MainWindow._save_settings_from_ui
 _original_on_nav_clicked = MainWindow._on_nav_clicked
 _original_refresh_table = getattr(MainWindow, "_refresh_table", None)
 _original_refresh_vip_ads_table = getattr(MainWindow, "_refresh_vip_ads_table", None)
+_original_refresh_bind_tables = getattr(MainWindow, "_refresh_bind_tables", None)
 
 
 def _patched_build_general_settings_group(self: MainWindow):
@@ -4695,9 +5015,22 @@ def _patched_on_nav_clicked(self: MainWindow, index: int) -> None:
 
 
 def _patched_refresh_table(self: MainWindow) -> None:
+    selected = ""
+    resolver = getattr(self, "_selected_report_signature", None)
+    if callable(resolver):
+        try:
+            selected = str(resolver() or "")
+        except Exception:
+            selected = ""
     if callable(_original_refresh_table):
         _original_refresh_table(self)
     _apply_queue_table_fixups(self)
+    sticky = str(getattr(self, "_sticky_report_key", "") or "")
+    if sticky and (not selected or selected == sticky):
+        if _select_report_by_key(self, sticky):
+            self._sticky_report_key = ""
+            return
+        self._sticky_report_key = ""
 
 
 def _patched_refresh_vip_ads_table(self: MainWindow) -> None:
@@ -4708,6 +5041,40 @@ def _patched_refresh_vip_ads_table(self: MainWindow) -> None:
         text = badge.text().casefold()
         if "активних" in text or "активні" in text or "активне" in text:
             _normalize_count_badge(badge)
+
+
+def _beautify_bind_tables(self: MainWindow) -> None:
+    tables = getattr(self, "_bind_tables", {}) or {}
+    for table in tables.values():
+        if not isinstance(table, QTableWidget):
+            continue
+        headers = ("Назва", "Клавіша", "Текст", "Чат")
+        if table.columnCount() >= len(headers):
+            for column, text in enumerate(headers):
+                _set_header_text(table, column, text)
+        _tune_table(table)
+        table.verticalHeader().setDefaultSectionSize(54)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(1, 118)
+        table.setColumnWidth(3, 58)
+        for row in range(table.rowCount()):
+            table.setRowHeight(row, 54)
+            for column in range(table.columnCount()):
+                item = table.item(row, column)
+                if item is None:
+                    continue
+                item.setToolTip(item.text())
+                item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+
+
+def _patched_refresh_bind_tables(self: MainWindow) -> None:
+    if callable(_original_refresh_bind_tables):
+        _original_refresh_bind_tables(self)
+    _beautify_bind_tables(self)
 
 
 def _restore_previous_design(self: MainWindow) -> None:
@@ -4942,6 +5309,7 @@ MainWindow._on_vip_mode_changed = _on_vip_mode_changed
 MainWindow._on_nav_clicked = _patched_on_nav_clicked
 MainWindow._refresh_table = _patched_refresh_table
 MainWindow._refresh_vip_ads_table = _patched_refresh_vip_ads_table
+MainWindow._refresh_bind_tables = _patched_refresh_bind_tables
 MainWindow._report_status_info = _report_status_info_patched
 MainWindow._send_reply = _send_reply_patched
 MainWindow._hotkey_last_report_pm = _hotkey_last_report_pm_patched

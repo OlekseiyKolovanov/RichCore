@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Signal
 
 from .ai_responder import SharedAIService
 from .models import VipAdAlert, VipChatMessage
+from .vip_triggers import find_offensive_triggers
 
 
 _VIP_START_TIME = clock_time(11, 0)
@@ -73,18 +74,29 @@ class VipAdDetector(QObject):
     def _classify_batch(self, messages: list[VipChatMessage]) -> tuple[list[VipAdAlert], list[VipChatMessage]]:
         candidates: list[VipChatMessage] = []
         clean_messages: list[VipChatMessage] = []
+        alerts: list[VipAdAlert] = []
 
         for message in messages:
-            if self._is_allowed_timestamp(message.timestamp):
+            offensive_triggers = find_offensive_triggers(message.text)
+            if offensive_triggers:
+                alerts.append(
+                    VipAdAlert(
+                        timestamp=message.timestamp,
+                        player_name=message.player_name,
+                        player_id=message.player_id,
+                        text=message.text,
+                        matched_keywords=("образлива лексика", *offensive_triggers),
+                    )
+                )
+            elif self._is_allowed_timestamp(message.timestamp):
                 candidates.append(message)
             else:
                 clean_messages.append(message)
 
         if not candidates:
-            return [], clean_messages
+            return alerts, clean_messages
 
         decisions = self._ai_service.classify_vip_messages(candidates)
-        alerts: list[VipAdAlert] = []
 
         for message, decision in zip(candidates, decisions):
             if decision.is_ad:

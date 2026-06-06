@@ -121,10 +121,26 @@ class AppointmentRecord:
         return info.full_name if info else self.faction.strip()
 
     @property
+    def organization_tag(self) -> str:
+        value = self.faction.strip()
+        info = self.faction_info
+        if info is None:
+            return value
+
+        value_key = _field_key(value)
+        if not value_key:
+            return info.code
+
+        full_key = _field_key(info.full_name)
+        ministry_key = _field_key(info.ministry)
+        if value_key in {full_key, ministry_key}:
+            return info.code
+        return value or info.code
+
+    @property
     def position_title(self) -> str:
-        if self.role == ROLE_WATCHER:
-            return f"{self.role_label} {self.organization_name}".strip()
-        return f"{self.role_label} {self.organization_name}".strip()
+        organization = self.organization_tag
+        return f"{self.role_label} {organization}".strip()
 
     @property
     def telegram_tag(self) -> str:

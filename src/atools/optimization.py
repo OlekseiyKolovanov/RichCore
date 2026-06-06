@@ -34,6 +34,7 @@ VISUAL_EFFECTS_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Visual
 PERSONALIZE_KEY = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 EXPLORER_ADVANCED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
 WINDOW_METRICS_KEY = r"Control Panel\Desktop\WindowMetrics"
+POWER_THROTTLING_KEY = r"SYSTEM\CurrentControlSet\Control\Power\PowerThrottling"
 
 GAME_MODE_NAMES = ("AllowAutoGameMode", "AutoGameModeEnabled")
 GAME_DVR_NAMES = (
@@ -134,6 +135,7 @@ class OptimizationManager:
     RECOMMENDED_KEYS = (
         "game_mode",
         "game_dvr",
+        "power_throttling",
         "desktop_effects",
         "gpu_preference",
         "fullscreen_compat",
@@ -152,6 +154,7 @@ class OptimizationManager:
         items = [
             self._game_mode_state(),
             self._game_dvr_state(),
+            self._power_throttling_state(),
             self._desktop_effects_state(),
             self._gpu_preference_state(),
             self._fullscreen_compat_state(),
@@ -175,6 +178,7 @@ class OptimizationManager:
         handlers = {
             "game_mode": self._apply_game_mode,
             "game_dvr": self._apply_game_dvr_disable,
+            "power_throttling": self._apply_power_throttling,
             "desktop_effects": self._apply_desktop_effects,
             "gpu_preference": self._apply_gpu_preference,
             "fullscreen_compat": self._apply_fullscreen_compat,
@@ -188,6 +192,7 @@ class OptimizationManager:
         handlers = {
             "game_mode": self._restore_game_mode,
             "game_dvr": self._restore_game_dvr,
+            "power_throttling": self._restore_power_throttling,
             "desktop_effects": self._restore_desktop_effects,
             "gpu_preference": self._restore_gpu_preference,
             "fullscreen_compat": self._restore_fullscreen_compat,
@@ -283,6 +288,21 @@ class OptimizationManager:
             active=active,
             supported=True,
             detail=detail,
+        )
+
+    def _power_throttling_state(self) -> OptimizationState:
+        value = self._read_dword(winreg.HKEY_LOCAL_MACHINE, POWER_THROTTLING_KEY, "PowerThrottlingOff")
+        active = value == 1
+        detail = "Вимикає системне приглушення фонових процесів Windows, щоб CPU не занижував частоти під час гри."
+        return OptimizationState(
+            key="power_throttling",
+            title="Power Throttling Off",
+            description="Прибирає агресивне енергозбереження Windows для стабільнішого frametime.",
+            impact="Середній вплив",
+            active=active,
+            supported=True,
+            detail=detail,
+            requires_restart=True,
         )
 
     def _gpu_preference_state(self) -> OptimizationState:
@@ -392,6 +412,14 @@ class OptimizationManager:
         self._delete_value(winreg.HKEY_CURRENT_USER, GAME_DVR_KEY, "GameDVR_FSEBehaviorMode")
         self._delete_value(winreg.HKEY_CURRENT_USER, GAME_DVR_KEY, "GameDVR_HonorUserFSEBehaviorMode")
         return "Xbox Game Bar / DVR повернуто до стандартної конфігурації."
+
+    def _apply_power_throttling(self) -> str:
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, POWER_THROTTLING_KEY, "PowerThrottlingOff", 1)
+        return "Windows Power Throttling вимкнено. Зміна застосовується без редагування файлів гри."
+
+    def _restore_power_throttling(self) -> str:
+        self._delete_value(winreg.HKEY_LOCAL_MACHINE, POWER_THROTTLING_KEY, "PowerThrottlingOff")
+        return "Windows Power Throttling повернуто до стандартної поведінки."
 
     def _apply_desktop_effects(self) -> str:
         self._write_dword(winreg.HKEY_CURRENT_USER, VISUAL_EFFECTS_KEY, "VisualFXSetting", 2)
