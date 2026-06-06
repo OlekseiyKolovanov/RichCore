@@ -560,7 +560,8 @@ def _sync_theme_selector(self: MainWindow) -> None:
 def _mark_chip_button(button: QPushButton | None) -> None:
     if button is None:
         return
-    button.setProperty("chipAction", True)
+    button.setObjectName("quickReplyButton")
+    button.setProperty("chipAction", "true")
     button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     _repolish(button)
     button.setMinimumHeight(30)
@@ -652,8 +653,14 @@ def _configure_report_queue_table(table: QTableWidget | None) -> None:
     header.setStretchLastSection(False)
     header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
     header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-    table.setColumnWidth(4, 146)
+    table.setColumnWidth(4, 190)
     table.setMinimumWidth(260)
+    for label in table.findChildren(QLabel, "statusBadge"):
+        label.setMinimumWidth(168)
+        label.setMaximumWidth(182)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        _repolish(label)
     _repolish(table)
 
 
@@ -664,9 +671,22 @@ def _normalize_count_badge(label: QLabel | None) -> None:
     label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     label.setMinimumHeight(28)
     label.setMaximumHeight(28)
-    label.setMinimumWidth(max(116, label.sizeHint().width() + 18))
-    label.setMaximumWidth(max(156, label.sizeHint().width() + 24))
+    label.setMinimumWidth(max(108, label.sizeHint().width() + 14))
+    label.setMaximumWidth(max(132, label.sizeHint().width() + 18))
     _repolish(label)
+
+
+def _find_count_badge(panel: QWidget | None, *, active_only: bool = False) -> QLabel | None:
+    if panel is None:
+        return None
+    direct = panel.findChild(QLabel, "reportCountBadge", options=Qt.FindChildOption.FindDirectChildrenOnly)
+    if direct is not None and (not active_only or "актив" in direct.text().casefold()):
+        return direct
+    for label in panel.findChildren(QLabel, "reportCountBadge"):
+        if active_only and "актив" not in label.text().casefold():
+            continue
+        return label
+    return None
 
 
 def _build_queue_header(parent: QWidget, object_name: str, title: QLabel | None, badge: QLabel | None) -> QWidget | None:
@@ -677,6 +697,8 @@ def _build_queue_header(parent: QWidget, object_name: str, title: QLabel | None,
     row.setMinimumHeight(30)
     row.setMaximumHeight(34)
     if title is not None:
+        title.setWordWrap(False)
+        title.setMinimumWidth(0)
         title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(title, 1, Qt.AlignmentFlag.AlignVCenter)
     else:
@@ -1986,6 +2008,7 @@ def _rebuild_report_queue_panel(self: MainWindow) -> None:
     queue_panel = _find_splitter_panel(report_table)
     if not isinstance(queue_panel, QFrame) or report_table is None:
         return
+    queue_panel.setMinimumWidth(360)
 
     title = _direct_label_by_text(queue_panel, ("Черга репортів", "ЧЕРГА РЕПОРТІВ"))
     subtitle = None
@@ -1994,7 +2017,7 @@ def _rebuild_report_queue_panel(self: MainWindow) -> None:
         if "Актуальні звернення" in text:
             subtitle = label
             break
-    count_badge = queue_panel.findChild(QLabel, "reportCountBadge", options=Qt.FindChildOption.FindDirectChildrenOnly)
+    count_badge = _find_count_badge(queue_panel)
     clear_button = _first_button_by_text(queue_panel, "Очистити весь список")
     _configure_report_queue_table(report_table)
     if count_badge is not None:
@@ -2106,7 +2129,7 @@ def _rebuild_vip_queue_panel(self: MainWindow) -> None:
         if "VIP" in text and "детектор" in text.casefold():
             subtitle = label
             break
-    count_badge = queue_panel.findChild(QLabel, "reportCountBadge", options=Qt.FindChildOption.FindDirectChildrenOnly)
+    count_badge = _find_count_badge(queue_panel, active_only=True)
     clear_button = _first_button_by_normalized_text(queue_panel, "Очистити весь список")
     header_row = _build_queue_header(queue_panel, "vipQueueHeaderRow", title, count_badge)
     layout = queue_panel.layout()
@@ -2464,7 +2487,7 @@ def _compact_report_reply_panel(self: MainWindow) -> None:
         layout.activate()
 
     splitter = _find_parent_splitter(panel)
-    _rebalance_splitter(splitter, 0.34)
+    _rebalance_splitter(splitter, 0.40)
     _sync_window_control_icons(self)
     panel.updateGeometry()
 
@@ -2659,6 +2682,9 @@ def _build_players_tab(self: MainWindow) -> QScrollArea:
     body_layout.setSpacing(12)
 
     punish_card, punish_layout = _make_card(body, "Покарання")
+    punish_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    punish_layout.setContentsMargins(14, 12, 14, 12)
+    punish_layout.setSpacing(7)
     punish_grid = QGridLayout()
     punish_grid.setContentsMargins(0, 0, 0, 0)
     punish_grid.setHorizontalSpacing(8)
@@ -2683,6 +2709,7 @@ def _build_players_tab(self: MainWindow) -> QScrollArea:
     self.kick_reason_input = _make_line_edit(punish_card, "Причина кіку")
     _build_player_action_row(punish_grid, 4, "Кік", [self.kick_reason_input], "Кікнути", lambda: _player_kick(self))
     punish_layout.addLayout(punish_grid)
+    punish_card.setMaximumHeight(punish_card.sizeHint().height() + 4)
 
     side = QWidget(body)
     side_layout = QVBoxLayout(side)
@@ -2746,7 +2773,7 @@ def _build_players_tab(self: MainWindow) -> QScrollArea:
     side_layout.addWidget(faction_card)
     side_layout.addWidget(log_card, 1)
 
-    body_layout.addWidget(punish_card, 1)
+    body_layout.addWidget(punish_card, 1, Qt.AlignmentFlag.AlignTop)
     body_layout.addWidget(side, 1)
     root.addWidget(body, 1)
 
@@ -3444,9 +3471,9 @@ def _restore_previous_design(self: MainWindow) -> None:
     _remove_labels_by_text(
         self,
         {
-            "РћРїРµСЂР°С†С–Р№РЅР° РїР°РЅРµР»СЊ РґР»СЏ СЂРµРїРѕСЂС‚С–РІ, VIP-РјРѕРґРµСЂР°С†С–С— С‚Р° С€РІРёРґРєРёС… РґС–Р№.",
-            "РђРєС‚СѓР°Р»СЊРЅС– Р·РІРµСЂРЅРµРЅРЅСЏ, СЃС‚Р°С‚СѓСЃ РІС–РґРїРѕРІС–РґС– С‚Р° РѕСЃС‚Р°РЅРЅСЏ РґС–СЏ РїРѕ РєРѕР¶РЅРѕРјСѓ СЂРµРїРѕСЂС‚Сѓ.",
-            "РђРІС‚РѕРјР°С‚РёС‡РЅРёР№ РјРѕРЅС–С‚РѕСЂРёРЅРі VIP-С‡Р°С‚Сѓ С‡РµСЂРµР· AI: РЅРµР№СЂРѕРЅРєР° РІРёР·РЅР°С‡Р°С” РЅР°РјС–СЂ РїРѕРІС–РґРѕРјР»РµРЅРЅСЏ С– РІС–РґРґС–Р»СЏС” СЂРµРєР»Р°РјСѓ Р°Р±Рѕ С‚РѕСЂРіС–РІР»СЋ РІС–Рґ Р·РІРёС‡Р°Р№РЅРёС… С–РЅС„РѕСЂРјР°С†С–Р№РЅРёС… РїРёС‚Р°РЅСЊ.",
+            "Операційна панель для репортів, VIP-модерації та швидких дій.",
+            "Актуальні звернення, статус відповіді та остання дія по кожному репорту.",
+            "Автоматичний моніторинг VIP-чату через AI: нейронка визначає намір повідомлення і відділяє рекламу або торгівлю від звичайних інформаційних питань.",
         },
     )
 

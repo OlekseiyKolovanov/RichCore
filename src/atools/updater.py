@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,6 +74,11 @@ def _release_update() -> UpdateInfo | None:
         return None
 
     assets = release.get("assets") or []
+    for asset in assets:
+        name = str(asset.get("name") or "")
+        url = str(asset.get("browser_download_url") or "")
+        if name.lower() == "richcore_v12.zip" and url:
+            return UpdateInfo(version=version, mode="release", url=url, asset_name=name)
     for asset in assets:
         name = str(asset.get("name") or "")
         url = str(asset.get("browser_download_url") or "")
@@ -170,34 +176,39 @@ def _install_git_update(parent: QWidget) -> None:
 
 def _install_release_update(parent: QWidget, info: UpdateInfo) -> None:
     target = Path(sys.executable).resolve()
+    target_dir = target.parent
     temp_dir = Path(tempfile.gettempdir()) / "RichCoreUpdate"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    new_exe = temp_dir / (info.asset_name or "RichCore_v12.exe")
+    downloaded = temp_dir / (info.asset_name or "RichCore_v12.zip")
 
     request = urllib.request.Request(info.url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
-            new_exe.write_bytes(response.read())
+            downloaded.write_bytes(response.read())
     except Exception as exc:
         QMessageBox.warning(parent, "Оновлення RichCore", f"Не вдалося завантажити оновлення: {exc}")
         return
 
-    script = temp_dir / "apply_update.ps1"
-    script.write_text(
-        """
-param(
-  [int]$ProcessId,
-  [string]$NewExe,
-  [string]$TargetExe
-)
-Wait-Process -Id $ProcessId -Timeout 30 -ErrorAction SilentlyContinue
-Copy-Item -LiteralPath $NewExe -Destination $TargetExe -Force
-Start-Process -FilePath $TargetExe -WorkingDirectory (Split-Path -Parent $TargetExe)
-Remove-Item -LiteralPath $NewExe -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
-""".strip(),
-        encoding="utf-8",
-    )
+    if downloaded.suffix.lower() == ".zip":
+        extracted = temp_dir / "extracted"
+        if extracted.exists():
+            import shutil
+
+            shutil.rmtree(extracted, ignore_errors=True)
+        extracted.mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(downloaded) as archive:
+                archive.extractall(extracted)
+        except Exception as exc:
+            QMessageBox.warning(parent, "Оновлення RichCore", f"Не вдалося розпакувати оновлення: {exc}")
+            return
+
+        source_dir = extracted / "RichCore_v12"
+        if not source_dir.exists():
+            source_dir = extracted
+        script = _write_folder_update_script(temp_dir, source_dir, target_dir, target)
+    else:
+        script = _write_exe_update_script(temp_dir, downloaded, target)
 
     subprocess.Popen(
         [
@@ -209,10 +220,6 @@ Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction Silent
             str(script),
             "-ProcessId",
             str(os.getpid()),
-            "-NewExe",
-            str(new_exe),
-            "-TargetExe",
-            str(target),
         ],
         cwd=str(target.parent),
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -220,3 +227,50 @@ Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction Silent
     app = QApplication.instance()
     if app is not None:
         QTimer.singleShot(250, app.quit)
+
+
+def _write_exe_update_script(temp_dir: Path, new_exe: Path, target: Path) -> Path:
+    script = temp_dir / "apply_update.ps1"
+    script.write_text(
+        """
+param(
+  [int]$ProcessId
+)
+$NewExe = '%NEW_EXE%'
+$TargetExe = '%TARGET_EXE%'
+Wait-Process -Id $ProcessId -Timeout 30 -ErrorAction SilentlyContinue
+Copy-Item -LiteralPath $NewExe -Destination $TargetExe -Force
+Start-Process -FilePath $TargetExe -WorkingDirectory (Split-Path -Parent $TargetExe)
+Remove-Item -LiteralPath $NewExe -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+""".strip()
+        .replace("%NEW_EXE%", str(new_exe).replace("'", "''"))
+        .replace("%TARGET_EXE%", str(target).replace("'", "''")),
+        encoding="utf-8",
+    )
+    return script
+
+
+def _write_folder_update_script(temp_dir: Path, source_dir: Path, target_dir: Path, target_exe: Path) -> Path:
+    script = temp_dir / "apply_update.ps1"
+    script.write_text(
+        """
+param(
+  [int]$ProcessId
+)
+$SourceDir = '%SOURCE_DIR%'
+$TargetDir = '%TARGET_DIR%'
+$TargetExe = '%TARGET_EXE%'
+Wait-Process -Id $ProcessId -Timeout 30 -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+Get-ChildItem -LiteralPath $SourceDir -Force | Copy-Item -Destination $TargetDir -Recurse -Force
+Start-Process -FilePath $TargetExe -WorkingDirectory $TargetDir
+Remove-Item -LiteralPath '%TEMP_DIR%' -Recurse -Force -ErrorAction SilentlyContinue
+""".strip()
+        .replace("%SOURCE_DIR%", str(source_dir).replace("'", "''"))
+        .replace("%TARGET_DIR%", str(target_dir).replace("'", "''"))
+        .replace("%TARGET_EXE%", str(target_exe).replace("'", "''"))
+        .replace("%TEMP_DIR%", str(temp_dir).replace("'", "''")),
+        encoding="utf-8",
+    )
+    return script

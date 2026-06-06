@@ -26,7 +26,8 @@ RichCore must run as administrator. If it is started without admin rights, the l
 The compiled file is created at:
 
 ```text
-dist\RichCore_v12.exe
+dist\RichCore_v12\RichCore_v12.exe
+dist\RichCore_v12.zip
 ```
 
 ## Auto-update
@@ -44,6 +45,8 @@ To publish an update:
 1. Bump the version in `src/atools/version.py` and `pyproject.toml`.
 2. Commit and push changes.
 3. Create a tag like `v1.0.1` and push it.
-4. GitHub Actions builds `RichCore_v12.exe` and uploads it to the Release.
+4. GitHub Actions builds `dist\RichCore_v12.zip` and uploads it to the Release.
 
 Users will see an update prompt in RichCore and can update without downloading or reinstalling manually.
+Release assets should be uploaded as `RichCore_v12.zip`; the updater also supports legacy single-exe assets.
+If GitHub Actions is unavailable, run `.\scripts\build.ps1` locally and upload `dist\RichCore_v12.zip` to the Release manually.

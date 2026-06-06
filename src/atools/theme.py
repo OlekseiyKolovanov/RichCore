@@ -881,7 +881,8 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
         border-color: {t["NAV_BADGE_BORDER"]};
     }}
 
-    QPushButton[chipAction="true"] {{
+    QPushButton[chipAction="true"],
+    QPushButton#quickReplyButton {{
         background: transparent;
         border: 1px solid {t["ACCENT_LINE"]};
         border-radius: 14px;
@@ -893,13 +894,15 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
         {"letter-spacing: 0px;" if mode == "blueprint" else ""}
     }}
 
-    QPushButton[chipAction="true"]:hover {{
+    QPushButton[chipAction="true"]:hover,
+    QPushButton#quickReplyButton:hover {{
         background: {t["ACCENT_SOFT"]};
         border-color: {t["CARD_BORDER_GLOW"]};
         color: {t["WINDOW_TEXT"]};
     }}
 
-    QPushButton[chipAction="true"]:pressed {{
+    QPushButton[chipAction="true"]:pressed,
+    QPushButton#quickReplyButton:pressed {{
         background: {t["COMBO_POPUP_SELECTED"]};
     }}
 

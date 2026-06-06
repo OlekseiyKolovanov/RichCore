@@ -50,8 +50,6 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
     name='RichCore_v12',
     debug=False,
@@ -67,4 +65,16 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets\\iconka.ico'],
+    uac_admin=True,
+    exclude_binaries=True,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='RichCore_v12',
 )
