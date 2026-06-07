@@ -35,6 +35,8 @@ PERSONALIZE_KEY = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize
 EXPLORER_ADVANCED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
 WINDOW_METRICS_KEY = r"Control Panel\Desktop\WindowMetrics"
 POWER_THROTTLING_KEY = r"SYSTEM\CurrentControlSet\Control\Power\PowerThrottling"
+MMCSS_KEY = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
+MMCSS_GAMES_KEY = MMCSS_KEY + r"\Tasks\Games"
 
 GAME_MODE_NAMES = ("AllowAutoGameMode", "AutoGameModeEnabled")
 GAME_DVR_NAMES = (
@@ -136,6 +138,7 @@ class OptimizationManager:
         "game_mode",
         "game_dvr",
         "power_throttling",
+        "mmcss_games",
         "desktop_effects",
         "gpu_preference",
         "fullscreen_compat",
@@ -155,6 +158,7 @@ class OptimizationManager:
             self._game_mode_state(),
             self._game_dvr_state(),
             self._power_throttling_state(),
+            self._mmcss_games_state(),
             self._desktop_effects_state(),
             self._gpu_preference_state(),
             self._fullscreen_compat_state(),
@@ -179,6 +183,7 @@ class OptimizationManager:
             "game_mode": self._apply_game_mode,
             "game_dvr": self._apply_game_dvr_disable,
             "power_throttling": self._apply_power_throttling,
+            "mmcss_games": self._apply_mmcss_games,
             "desktop_effects": self._apply_desktop_effects,
             "gpu_preference": self._apply_gpu_preference,
             "fullscreen_compat": self._apply_fullscreen_compat,
@@ -193,6 +198,7 @@ class OptimizationManager:
             "game_mode": self._restore_game_mode,
             "game_dvr": self._restore_game_dvr,
             "power_throttling": self._restore_power_throttling,
+            "mmcss_games": self._restore_mmcss_games,
             "desktop_effects": self._restore_desktop_effects,
             "gpu_preference": self._restore_gpu_preference,
             "fullscreen_compat": self._restore_fullscreen_compat,
@@ -299,6 +305,33 @@ class OptimizationManager:
             title="Power Throttling Off",
             description="Прибирає агресивне енергозбереження Windows для стабільнішого frametime.",
             impact="Середній вплив",
+            active=active,
+            supported=True,
+            detail=detail,
+            requires_restart=True,
+        )
+
+    def _mmcss_games_state(self) -> OptimizationState:
+        responsiveness = self._read_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_KEY, "SystemResponsiveness")
+        throttling = self._read_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_KEY, "NetworkThrottlingIndex")
+        gpu_priority = self._read_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "GPU Priority")
+        priority = self._read_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "Priority")
+        scheduling = (self._read_string(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "Scheduling Category") or "").casefold()
+        sfio = (self._read_string(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "SFIO Priority") or "").casefold()
+        active = (
+            responsiveness == 0
+            and throttling == 0xFFFFFFFF
+            and (gpu_priority or 0) >= 8
+            and (priority or 0) >= 6
+            and scheduling == "high"
+            and sfio == "high"
+        )
+        detail = "Налаштовує Multimedia SystemProfile для ігор: менше мережевого throttling і вищий scheduling для Games."
+        return OptimizationState(
+            key="mmcss_games",
+            title="Windows Games Scheduling",
+            description="Посилює системний профіль Windows для ігрового навантаження без зміни файлів гри.",
+            impact="Високий вплив",
             active=active,
             supported=True,
             detail=detail,
@@ -420,6 +453,24 @@ class OptimizationManager:
     def _restore_power_throttling(self) -> str:
         self._delete_value(winreg.HKEY_LOCAL_MACHINE, POWER_THROTTLING_KEY, "PowerThrottlingOff")
         return "Windows Power Throttling повернуто до стандартної поведінки."
+
+    def _apply_mmcss_games(self) -> str:
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_KEY, "SystemResponsiveness", 0)
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_KEY, "NetworkThrottlingIndex", 0xFFFFFFFF)
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "GPU Priority", 8)
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "Priority", 6)
+        self._write_string(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "Scheduling Category", "High")
+        self._write_string(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "SFIO Priority", "High")
+        return "Windows Games Scheduling посилено через Multimedia SystemProfile."
+
+    def _restore_mmcss_games(self) -> str:
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_KEY, "SystemResponsiveness", 20)
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_KEY, "NetworkThrottlingIndex", 10)
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "GPU Priority", 8)
+        self._write_dword(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "Priority", 6)
+        self._write_string(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "Scheduling Category", "High")
+        self._write_string(winreg.HKEY_LOCAL_MACHINE, MMCSS_GAMES_KEY, "SFIO Priority", "High")
+        return "Windows Games Scheduling повернуто до стандартних значень Windows."
 
     def _apply_desktop_effects(self) -> str:
         self._write_dword(winreg.HKEY_CURRENT_USER, VISUAL_EFFECTS_KEY, "VisualFXSetting", 2)

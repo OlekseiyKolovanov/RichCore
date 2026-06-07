@@ -65,6 +65,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets\\iconka.ico'],
+    version='build_resources\\version_info.txt',
     uac_admin=True,
     exclude_binaries=True,
 )

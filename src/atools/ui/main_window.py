@@ -417,7 +417,19 @@ def _set_panel_style(widget: QWidget | None, *, object_name: str | None = None) 
         widget.setObjectName(object_name)
     widget.setProperty("workspacePanel", True)
     widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    _apply_soft_shadow(widget)
     _repolish(widget)
+
+
+def _apply_soft_shadow(widget: QWidget | None, *, blur: int = 34, y_offset: int = 10, alpha: int = 46) -> None:
+    if widget is None or widget.property("softShadowApplied"):
+        return
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(blur)
+    effect.setOffset(0, y_offset)
+    effect.setColor(QColor(0, 0, 0, alpha))
+    widget.setGraphicsEffect(effect)
+    widget.setProperty("softShadowApplied", True)
 
 
 def _ensure_button_class(button: QPushButton | None, class_name: str) -> None:
@@ -593,11 +605,12 @@ def _mark_chip_button(button: QPushButton | None) -> None:
     button.setObjectName("quickReplyButton")
     button.setProperty("class", "quickReply")
     button.setProperty("chipAction", "true")
+    button.setProperty("roundedChip", "true")
     button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     _repolish(button)
-    button.setMinimumHeight(30)
-    button.setMaximumHeight(32)
-    button.setFixedHeight(32)
+    button.setMinimumHeight(34)
+    button.setMaximumHeight(36)
+    button.setFixedHeight(36)
     button.updateGeometry()
 
 
@@ -988,6 +1001,8 @@ def _rebuild_shell(self: MainWindow) -> None:
 
     for widget in (shell, side_rail, brand_card, nav_frame, title_bar, section_header, workspace_surface, content_shell):
         _repolish(widget)
+    for widget in (side_rail, brand_card, nav_frame, workspace_surface):
+        _apply_soft_shadow(widget, blur=38, y_offset=12, alpha=38)
     _update_shell_context(self, tabs.currentIndex())
 
 
@@ -1290,6 +1305,56 @@ def _force_admin_vip_mode(self: MainWindow) -> None:
         self._update_vip_command_preview()
 
 
+_VIP_PUNISH_REASONS = (
+    ("ad", "Реклама у VIP"),
+    ("insult", "Образа гравців"),
+    ("profanity", "Нецензурна лайка"),
+)
+
+
+def _vip_reason_label(key: str) -> str:
+    for item_key, label in _VIP_PUNISH_REASONS:
+        if item_key == key:
+            return label
+    return _VIP_PUNISH_REASONS[0][1]
+
+
+def _infer_vip_reason_key(alert: VipAdAlert | None) -> str:
+    if alert is None:
+        return "ad"
+    keywords = " ".join(alert.matched_keywords).casefold()
+    if "образ" in keywords:
+        return "insult"
+    if "лайк" in keywords or "мат" in keywords:
+        return "profanity"
+    return "ad"
+
+
+def _ensure_vip_reason_selector(self: MainWindow, panel: QWidget | None = None) -> QComboBox:
+    combo = getattr(self, "vip_punish_reason_combo", None)
+    if combo is None:
+        combo = QComboBox(panel or self)
+        combo.setObjectName("vipPunishReasonCombo")
+        for key, label in _VIP_PUNISH_REASONS:
+            combo.addItem(label, key)
+        combo.currentIndexChanged.connect(
+            lambda _index: self._update_vip_command_preview() if hasattr(self, "_update_vip_command_preview") else None
+        )
+        self.vip_punish_reason_combo = combo
+    elif panel is not None and combo.parentWidget() is not panel:
+        combo.setParent(panel)
+    combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    _repolish(combo)
+    return combo
+
+
+def _sync_vip_reason_selector(self: MainWindow, alert: VipAdAlert | None = None) -> None:
+    combo = _ensure_vip_reason_selector(self)
+    _set_combo_current_data(combo, _infer_vip_reason_key(alert))
+    if hasattr(self, "_update_vip_command_preview"):
+        self._update_vip_command_preview()
+
+
 def _wrap_in_scroll_area(widget: QWidget) -> None:
     parent = widget.parentWidget()
     if parent is None or not isinstance(parent, _RECOVERED.QSplitter):
@@ -1546,8 +1611,9 @@ def _format_vip_punishment_command(self: MainWindow, alert: VipAdAlert) -> str:
     self.settings.vip_ad_punish_mode = "admin"
     _set_radio_checked(getattr(self, "vip_mode_assistant_radio", None), False)
     _set_radio_checked(getattr(self, "vip_mode_admin_radio", None), True)
-    keywords = " ".join(alert.matched_keywords).casefold()
-    reason = "Образлива лексика у VIP чаті" if "образ" in keywords else "Реклама у VIP чаті"
+    combo = _ensure_vip_reason_selector(self)
+    reason_key = _combo_data(combo) or _infer_vip_reason_key(alert)
+    reason = _vip_reason_label(reason_key)
     return _strip_slash_command(f"pmute {alert.player_id} 30 {reason}")
 
 
@@ -1954,8 +2020,11 @@ def _sync_window_control_icons(self: MainWindow, theme_mode: str | None = None) 
     controls = _window_control_buttons(self)
     frame = self.findChild(QFrame, "windowControls")
     if frame is not None and frame.layout() is not None:
-        frame.layout().setContentsMargins(6, 6, 6, 6)
-        frame.layout().setSpacing(6)
+        frame.setMinimumHeight(40)
+        frame.setMaximumHeight(40)
+        frame.layout().setContentsMargins(6, 5, 6, 5)
+        frame.layout().setSpacing(5)
+        frame.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
         _repolish(frame)
     for role, button in controls.items():
         icon_role = role
@@ -1963,9 +2032,9 @@ def _sync_window_control_icons(self: MainWindow, theme_mode: str | None = None) 
             icon_role = "restore"
         button.setText("")
         button.setIcon(window_control_icon(icon_role, mode))
-        button.setIconSize(QSize(16, 16))
+        button.setIconSize(QSize(15, 15))
         button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setFixedSize(30, 30)
+        button.setFixedSize(28, 28)
         button.setToolTip(
             {
                 "minimize": "Згорнути",
@@ -2074,7 +2143,8 @@ def _rebuild_quick_reply_grid(panel: QWidget) -> QWidget | None:
             button = _first_button_by_normalized_text(panel, label)
             if button is None:
                 continue
-            _set_button_height(button, 30, 32)
+            _mark_chip_button(button)
+            _set_button_height(button, 34, 36)
             button.setMinimumWidth(0)
             button.setMaximumWidth(16777215)
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -2087,7 +2157,8 @@ def _rebuild_quick_reply_grid(panel: QWidget) -> QWidget | None:
             continue
         row_index = next_index // 3
         column_index = next_index % 3
-        _set_button_height(button, 30, 32)
+        _mark_chip_button(button)
+        _set_button_height(button, 34, 36)
         button.setMinimumWidth(0)
         button.setMaximumWidth(16777215)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -2099,12 +2170,12 @@ def _rebuild_quick_reply_grid(panel: QWidget) -> QWidget | None:
         layout.setColumnStretch(column_index, 1)
     for row_index in range(row_count):
         layout.setRowStretch(row_index, 0)
-        layout.setRowMinimumHeight(row_index, 32)
+        layout.setRowMinimumHeight(row_index, 36)
 
     grid.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-    grid.setMinimumHeight(70)
-    grid.setMaximumHeight(70)
-    grid.setFixedHeight(70)
+    grid.setMinimumHeight(78)
+    grid.setMaximumHeight(78)
+    grid.setFixedHeight(78)
     return grid
 
 
@@ -2118,9 +2189,10 @@ def _rebuild_report_queue_panel(self: MainWindow) -> None:
     title = _direct_label_by_text(queue_panel, ("Черга репортів", "ЧЕРГА РЕПОРТІВ"))
     if title is None:
         title = QLabel("Черга репортів", queue_panel)
-        title.setProperty("class", "sectionTitle")
     else:
         title.setText("Черга репортів")
+    title.setProperty("class", "queueTitle")
+    title.setProperty("queueTitle", "true")
     subtitle = None
     for label in queue_panel.findChildren(QLabel, options=Qt.FindChildOption.FindDirectChildrenOnly):
         text = label.text().strip()
@@ -2199,25 +2271,31 @@ def _rebuild_report_detail_panel(self: MainWindow) -> None:
 
     action_row, action_layout = _ensure_row_widget(panel, "reportActionRow", 8)
     if copy_id_button is not None:
-        copy_id_button.setMinimumWidth(118)
-        copy_id_button.setMaximumWidth(132)
+        _set_button_height(copy_id_button, 36, 38)
+        copy_id_button.setMinimumWidth(124)
+        copy_id_button.setMaximumWidth(148)
         copy_id_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         action_layout.addWidget(copy_id_button)
     if teleport_button is not None:
+        _set_button_height(teleport_button, 36, 38)
         teleport_button.setMinimumWidth(118)
         teleport_button.setMaximumWidth(118)
         teleport_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         action_layout.addWidget(teleport_button)
     if colleague_button is not None:
+        _set_button_height(colleague_button, 36, 38)
         colleague_button.setMinimumWidth(176)
         colleague_button.setMaximumWidth(176)
         colleague_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         action_layout.addWidget(colleague_button)
     if send_button is not None:
+        _set_button_height(send_button, 36, 38)
         send_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         action_layout.addWidget(send_button, 1)
     action_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-    action_row.setFixedHeight(34)
+    action_row.setMinimumHeight(42)
+    action_row.setMaximumHeight(44)
+    action_row.setFixedHeight(44)
 
     _clear_layout_items(layout)
     layout.setContentsMargins(12, 12, 12, 12)
@@ -2289,6 +2367,7 @@ def _rebuild_vip_detail_panel(self: MainWindow) -> None:
     player_card = panel.findChild(QFrame, "playerInfoCard")
     command_label = _first_label_by_normalized_text(panel, "Команда")
     command_preview = self.findChild(_RECOVERED.QLineEdit, "vipCommandPreview")
+    reason_combo = _ensure_vip_reason_selector(self, panel)
     clean_button = _first_button_by_normalized_text(panel, "Позначити як чисте")
     punish_button = _first_button_by_normalized_text(panel, "Видати покарання")
 
@@ -2304,6 +2383,16 @@ def _rebuild_vip_detail_panel(self: MainWindow) -> None:
     action_row.setMaximumHeight(34)
     action_row.setFixedHeight(34)
 
+    reason_row, reason_layout = _ensure_row_widget(panel, "vipPunishReasonRow", 8)
+    reason_label = getattr(self, "vip_punish_reason_label", None)
+    if reason_label is None:
+        reason_label = QLabel("Причина", panel)
+        reason_label.setProperty("formLabel", True)
+        self.vip_punish_reason_label = reason_label
+    reason_layout.addWidget(reason_label)
+    reason_layout.addWidget(reason_combo, 1)
+    reason_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
     layout = panel.layout()
     if layout is None:
         layout = QVBoxLayout(panel)
@@ -2318,6 +2407,7 @@ def _rebuild_vip_detail_panel(self: MainWindow) -> None:
         layout.addWidget(preview, 1)
     if command_label is not None:
         layout.addWidget(command_label)
+    layout.addWidget(reason_row)
     if command_preview is not None:
         command_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(command_preview)
@@ -2410,6 +2500,7 @@ def _compact_button_metrics(self: MainWindow) -> None:
         "вставити текст ai",
         "вставити ai-текст",
         "телепорт",
+        "копіювати id",
         "відповідь колеги",
         "відправити відповідь",
         "відправити",
@@ -2422,9 +2513,9 @@ def _compact_button_metrics(self: MainWindow) -> None:
         if not text:
             continue
         if button.property("chipAction") or text in chip_texts:
-            _set_button_height(button, 30, 32)
+            _set_button_height(button, 34, 36)
         elif text in report_action_texts:
-            _set_button_height(button, 34, 34)
+            _set_button_height(button, 36, 38)
         elif text in compact_texts or button.property("class") in {"primaryAction", "secondaryAction", "dangerGhost"}:
             _set_button_height(button, 32, 34)
 
@@ -2456,9 +2547,9 @@ def _compact_report_reply_panel(self: MainWindow) -> None:
     report_min, report_max = ((60, 64) if dense_mode else (68, 140))
     ai_min, ai_max = ((44, 48) if dense_mode else (52, 96))
     reply_min, reply_max = ((60, 64) if dense_mode else (70, 280))
-    quick_min, quick_max = ((28, 30) if dense_mode else (30, 32))
-    quick_grid_height = 64 if dense_mode else 70
-    action_height = 32 if dense_mode else 34
+    quick_min, quick_max = ((34, 36) if dense_mode else (34, 36))
+    quick_grid_height = 78
+    action_height = 38
     ai_header_height = 20 if dense_mode else 22
     insert_height = 34
 
@@ -2516,9 +2607,9 @@ def _compact_report_reply_panel(self: MainWindow) -> None:
 
     action_row = panel.findChild(QWidget, "reportActionRow")
     if action_row is not None:
-        action_row.setMinimumHeight(action_height)
-        action_row.setMaximumHeight(action_height)
-        action_row.setFixedHeight(action_height)
+        action_row.setMinimumHeight(action_height + 4)
+        action_row.setMaximumHeight(action_height + 6)
+        action_row.setFixedHeight(action_height + 6)
 
     quick_reply_grid = _rebuild_quick_reply_grid(panel)
 
@@ -2589,12 +2680,16 @@ def _compact_report_reply_panel(self: MainWindow) -> None:
                 vip_layout.setContentsMargins(16, 16, 16, 16)
                 vip_layout.setSpacing(10)
             vip_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            preview_height = max(188, vip_panel.height() - 230)
+            preview_height = max(168, vip_panel.height() - 274)
             _set_editor_height(vip_preview, preview_height, preview_height)
             vip_command = self.findChild(_RECOVERED.QLineEdit, "vipCommandPreview")
             if vip_command is not None:
                 vip_command.setMinimumHeight(42)
                 vip_command.setMaximumHeight(42)
+            vip_reason_row = vip_panel.findChild(QWidget, "vipPunishReasonRow")
+            if vip_reason_row is not None:
+                vip_reason_row.setMinimumHeight(38)
+                vip_reason_row.setMaximumHeight(40)
             vip_action_row = vip_panel.findChild(QWidget, "vipActionRow")
             if vip_action_row is not None:
                 vip_action_row.setFixedHeight(34)
@@ -2856,6 +2951,8 @@ def _build_players_tab(self: MainWindow) -> QScrollArea:
     self.lookup_btn.clicked.connect(lambda: _start_player_lookup(self, _line_value(self.player_target_input)))
     self.from_report_player_btn = QPushButton("З репорту", target_row)
     self.from_report_player_btn.clicked.connect(lambda: _fill_player_from_report(self))
+    self.copy_player_id_btn = QPushButton("Копіювати ID", target_row)
+    self.copy_player_id_btn.clicked.connect(lambda: _copy_player_target_id(self))
     self.player_sp_btn = QPushButton("SP до гравця", target_row)
     self.player_sp_btn.clicked.connect(lambda: _player_sp(self))
     self.target_id_badge = QLabel("ID: -", target_row)
@@ -2863,15 +2960,17 @@ def _build_players_tab(self: MainWindow) -> QScrollArea:
     self.target_name_label = QLabel("-", target_row)
     self.target_name_label.setObjectName("targetBadge")
 
-    for button in (self.lookup_btn, self.from_report_player_btn, self.player_sp_btn):
+    for button in (self.lookup_btn, self.from_report_player_btn, self.copy_player_id_btn, self.player_sp_btn):
         button.setCursor(Qt.CursorShape.PointingHandCursor)
     self.lookup_btn.setProperty("class", "primaryAction")
     self.from_report_player_btn.setProperty("class", "secondaryAction")
+    self.copy_player_id_btn.setProperty("class", "secondaryAction")
     self.player_sp_btn.setProperty("class", "secondaryAction")
 
     target_row_layout.addWidget(self.player_target_input, 1)
     target_row_layout.addWidget(self.lookup_btn)
     target_row_layout.addWidget(self.from_report_player_btn)
+    target_row_layout.addWidget(self.copy_player_id_btn)
     target_row_layout.addWidget(self.player_sp_btn)
     target_row_layout.addWidget(self.target_id_badge)
     target_row_layout.addWidget(self.target_name_label)
@@ -3112,7 +3211,7 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
     filters_layout = QGridLayout(filters)
     filters_layout.setContentsMargins(0, 0, 0, 0)
     filters_layout.setSpacing(8)
-    self.appointment_search_input = _make_line_edit(filters, "Пошук: NickName, ID, Telegram, Discord, організація")
+    self.appointment_search_input = _make_line_edit(filters, "Пошук: NickName, ID або фракція")
     self.appointment_role_filter = QComboBox(filters)
     self.appointment_role_filter.addItem("Усі ролі", "")
     self.appointment_role_filter.addItem("Лідери", ROLE_LEADER)
@@ -3123,23 +3222,16 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
     for option in _FACTION_OPTIONS:
         code = option.split(" - ", 1)[-1].strip()
         self.appointment_org_filter.addItem(option, code)
-    self.appointment_contact_filter = QComboBox(filters)
-    self.appointment_contact_filter.addItem("Усі контакти", "")
-    self.appointment_contact_filter.addItem("Є Telegram", "telegram")
-    self.appointment_contact_filter.addItem("Є Discord", "discord")
-    self.appointment_contact_filter.addItem("Без контакту", "missing")
     self.appointment_reset_filter_btn = QPushButton("Скинути", filters)
     self.appointment_reset_filter_btn.setProperty("class", "secondaryAction")
     self.appointment_search_input.textChanged.connect(lambda _text: _refresh_appointments_table(self))
     self.appointment_role_filter.currentIndexChanged.connect(lambda _index: _refresh_appointments_table(self))
     self.appointment_org_filter.currentIndexChanged.connect(lambda _index: _refresh_appointments_table(self))
-    self.appointment_contact_filter.currentIndexChanged.connect(lambda _index: _refresh_appointments_table(self))
     self.appointment_reset_filter_btn.clicked.connect(lambda: _reset_appointment_filters(self))
     filters_layout.addWidget(self.appointment_search_input, 0, 0, 1, 3)
     filters_layout.addWidget(self.appointment_role_filter, 0, 3)
     filters_layout.addWidget(self.appointment_org_filter, 0, 4)
-    filters_layout.addWidget(self.appointment_contact_filter, 1, 0)
-    filters_layout.addWidget(self.appointment_reset_filter_btn, 1, 1)
+    filters_layout.addWidget(self.appointment_reset_filter_btn, 1, 0)
     filters_layout.setColumnStretch(2, 1)
     top_layout.addWidget(filters)
     root.addWidget(top_card)
@@ -3151,8 +3243,8 @@ def _build_appointments_tab(self: MainWindow) -> QScrollArea:
 
     queue_card, queue_layout = _make_card(body, "Нові заявки")
     queue_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    self.appointments_table = QTableWidget(0, 5, queue_card)
-    _configure_appointment_table(self.appointments_table, ("Заявка", "Орг.", "Контакти", "Дата", "Джерело"))
+    self.appointments_table = QTableWidget(0, 2, queue_card)
+    _configure_appointment_table(self.appointments_table, ("Нік", "Фракція"))
     self.appointments_table.currentCellChanged.connect(lambda *_args: _update_appointment_detail(self))
     queue_layout.addWidget(self.appointments_table)
 
@@ -3275,7 +3367,7 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
     controls_layout.setContentsMargins(0, 0, 0, 0)
     controls_layout.setSpacing(8)
 
-    self.active_appointment_search_input = _make_line_edit(controls, "Пошук: NickName, ID, Telegram, Discord, організація")
+    self.active_appointment_search_input = _make_line_edit(controls, "Пошук: NickName, ID або фракція")
     self.active_appointment_role_filter = QComboBox(controls)
     self.active_appointment_role_filter.addItem("Усі ролі", "")
     self.active_appointment_role_filter.addItem("Лідери", ROLE_LEADER)
@@ -3291,12 +3383,6 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
     self.active_appointment_term_filter.addItem("1/3", "1/3")
     self.active_appointment_term_filter.addItem("2/3", "2/3")
     self.active_appointment_term_filter.addItem("3/3", "3/3")
-    self.active_appointment_contact_filter = QComboBox(controls)
-    self.active_appointment_contact_filter.addItem("Усі контакти", "")
-    self.active_appointment_contact_filter.addItem("Є Telegram", "telegram")
-    self.active_appointment_contact_filter.addItem("Є Discord", "discord")
-    self.active_appointment_contact_filter.addItem("Без контакту", "missing")
-
     self.active_appointment_refresh_btn = QPushButton("Оновити активних", controls)
     self.active_appointment_sync_terms_btn = QPushButton("Синхронізувати терміни", controls)
     self.active_appointment_reset_filter_btn = QPushButton("Скинути", controls)
@@ -3311,7 +3397,6 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
     self.active_appointment_role_filter.currentIndexChanged.connect(lambda _index: _refresh_active_appointments_table(self))
     self.active_appointment_org_filter.currentIndexChanged.connect(lambda _index: _refresh_active_appointments_table(self))
     self.active_appointment_term_filter.currentIndexChanged.connect(lambda _index: _refresh_active_appointments_table(self))
-    self.active_appointment_contact_filter.currentIndexChanged.connect(lambda _index: _refresh_active_appointments_table(self))
     self.active_appointment_refresh_btn.clicked.connect(lambda: _start_active_appointments_fetch(self))
     self.active_appointment_sync_terms_btn.clicked.connect(lambda: _start_appointment_term_sync(self))
     self.active_appointment_reset_filter_btn.clicked.connect(lambda: _reset_active_appointment_filters(self))
@@ -3320,8 +3405,7 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
     controls_layout.addWidget(self.active_appointment_role_filter, 0, 3)
     controls_layout.addWidget(self.active_appointment_org_filter, 0, 4)
     controls_layout.addWidget(self.active_appointment_term_filter, 1, 0)
-    controls_layout.addWidget(self.active_appointment_contact_filter, 1, 1)
-    controls_layout.addWidget(self.active_appointment_reset_filter_btn, 1, 2)
+    controls_layout.addWidget(self.active_appointment_reset_filter_btn, 1, 1)
     controls_layout.addWidget(self.active_appointment_refresh_btn, 2, 0)
     controls_layout.addWidget(self.active_appointment_sync_terms_btn, 2, 1)
     controls_layout.addWidget(self.active_appointment_count_label, 2, 2)
@@ -3336,10 +3420,10 @@ def _build_appointment_removals_tab(self: MainWindow) -> QScrollArea:
 
     list_card, list_layout = _make_card(body, "Активні призначені")
     list_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    self.active_appointments_table = QTableWidget(0, 5, list_card)
+    self.active_appointments_table = QTableWidget(0, 2, list_card)
     _configure_appointment_table(
         self.active_appointments_table,
-        ("Людина", "Орг.", "Термін", "Контакти", "Project"),
+        ("Нік", "Фракція"),
     )
     self.active_appointments_table.currentCellChanged.connect(lambda *_args: _update_active_appointment_detail(self))
     list_layout.addWidget(self.active_appointments_table)
@@ -3434,9 +3518,9 @@ def _configure_appointment_table(table: QTableWidget, headers: tuple[str, ...]) 
     table.setShowGrid(False)
     table.setTextElideMode(Qt.TextElideMode.ElideRight)
     table.verticalHeader().setVisible(False)
-    table.verticalHeader().setDefaultSectionSize(58)
+    table.verticalHeader().setDefaultSectionSize(44)
     for column in range(len(headers)):
-        mode = QHeaderView.ResizeMode.Stretch if column in {0, 3} else QHeaderView.ResizeMode.ResizeToContents
+        mode = QHeaderView.ResizeMode.Stretch if column == 0 else QHeaderView.ResizeMode.ResizeToContents
         table.horizontalHeader().setSectionResizeMode(column, mode)
     table.horizontalHeader().setHighlightSections(False)
     table.horizontalHeader().setStretchLastSection(False)
@@ -3674,6 +3758,17 @@ def _combo_data(combo: QComboBox | None) -> str:
     return str(combo.currentData() or "") if combo is not None else ""
 
 
+def _set_combo_current_data(combo: QComboBox | None, value: str) -> None:
+    if combo is None:
+        return
+    index = combo.findData(value)
+    if index < 0:
+        return
+    blocked = combo.blockSignals(True)
+    combo.setCurrentIndex(index)
+    combo.blockSignals(blocked)
+
+
 def _contact_filter_matches(record: AppointmentRecord, mode: str) -> bool:
     if mode == "telegram":
         return bool(record.telegram_tag)
@@ -3685,7 +3780,7 @@ def _contact_filter_matches(record: AppointmentRecord, mode: str) -> bool:
 
 
 def _reset_appointment_filters(self: MainWindow) -> None:
-    for combo_name in ("appointment_role_filter", "appointment_org_filter", "appointment_contact_filter"):
+    for combo_name in ("appointment_role_filter", "appointment_org_filter"):
         combo = getattr(self, combo_name, None)
         if combo is not None:
             combo.setCurrentIndex(0)
@@ -3700,7 +3795,6 @@ def _reset_active_appointment_filters(self: MainWindow) -> None:
         "active_appointment_role_filter",
         "active_appointment_org_filter",
         "active_appointment_term_filter",
-        "active_appointment_contact_filter",
     ):
         combo = getattr(self, combo_name, None)
         if combo is not None:
@@ -3716,7 +3810,6 @@ def _active_appointment_matches_filters(self: MainWindow, record: AppointmentRec
     role_filter = _combo_data(getattr(self, "active_appointment_role_filter", None))
     org_filter = _combo_data(getattr(self, "active_appointment_org_filter", None))
     term_filter = _combo_data(getattr(self, "active_appointment_term_filter", None))
-    contact_filter = _combo_data(getattr(self, "active_appointment_contact_filter", None))
 
     if role_filter and record.role != role_filter:
         return False
@@ -3724,8 +3817,6 @@ def _active_appointment_matches_filters(self: MainWindow, record: AppointmentRec
     if org_filter and (info is None or info.code != org_filter):
         return False
     if term_filter and _active_record_term_text(record) != term_filter:
-        return False
-    if not _contact_filter_matches(record, contact_filter):
         return False
     if not query:
         return True
@@ -3775,11 +3866,8 @@ def _fill_active_appointment_table(table: QTableWidget, records: list[Appointmen
         table.setRowCount(len(records))
         for row, record in enumerate(records):
             values = (
-                f"{record.nickname}\n{record.role_label} | ID {record.player_id or '-'}",
+                record.nickname or "-",
                 _record_organization_tag(record),
-                _active_record_term_text(record),
-                _record_contact_summary(record),
-                _active_record_project_label(config, record),
             )
             for column, value in enumerate(values):
                 tooltip = "\n".join(
@@ -3802,7 +3890,7 @@ def _fill_active_appointment_table(table: QTableWidget, records: list[Appointmen
         table.blockSignals(False)
     table.resizeRowsToContents()
     for row in range(table.rowCount()):
-        table.setRowHeight(row, max(58, table.rowHeight(row)))
+        table.setRowHeight(row, max(44, table.rowHeight(row)))
 
 
 def _selected_active_appointment(self: MainWindow) -> AppointmentRecord | None:
@@ -3992,14 +4080,11 @@ def _appointment_matches_filters(self: MainWindow, record: AppointmentRecord) ->
     query = _line_value(getattr(self, "appointment_search_input", None)).casefold()
     role_filter = _combo_data(getattr(self, "appointment_role_filter", None))
     org_filter = _combo_data(getattr(self, "appointment_org_filter", None))
-    contact_filter = _combo_data(getattr(self, "appointment_contact_filter", None))
 
     if role_filter and record.role != role_filter:
         return False
     info = record.faction_info
     if org_filter and (info is None or info.code != org_filter):
-        return False
-    if not _contact_filter_matches(record, contact_filter):
         return False
     if not query:
         return True
@@ -4063,11 +4148,8 @@ def _fill_appointment_table(table: QTableWidget, records: list[AppointmentRecord
         table.setRowCount(len(records))
         for row, record in enumerate(records):
             values = (
-                f"{record.nickname}\n{record.role_label} | ID {record.player_id or '-'}",
+                record.nickname or "-",
                 _record_organization_tag(record),
-                _record_contact_summary(record),
-                record.appoint_date,
-                record.source_label,
             )
             for column, value in enumerate(values):
                 tooltip = "\n".join(
@@ -4091,7 +4173,7 @@ def _fill_appointment_table(table: QTableWidget, records: list[AppointmentRecord
         table.blockSignals(False)
     table.resizeRowsToContents()
     for row in range(table.rowCount()):
-        table.setRowHeight(row, max(58, table.rowHeight(row)))
+        table.setRowHeight(row, max(44, table.rowHeight(row)))
 
 
 def _active_appointment_table(self: MainWindow) -> QTableWidget | None:
@@ -4737,6 +4819,10 @@ def _player_sp(self: MainWindow) -> None:
     _with_target_id(self, lambda pid: _run_console_action(self, "SP до гравця", f"sp {pid}"))
 
 
+def _copy_player_target_id(self: MainWindow) -> None:
+    _with_target_id(self, lambda pid: _copy_text_to_clipboard(self, pid, "ID гравця скопійовано"))
+
+
 def _player_set_faction_level(self: MainWindow) -> None:
     level = self.faction_level_combo.currentText().strip()
     if level not in {str(index) for index in range(1, 13)}:
@@ -4959,6 +5045,7 @@ _original_on_nav_clicked = MainWindow._on_nav_clicked
 _original_refresh_table = getattr(MainWindow, "_refresh_table", None)
 _original_refresh_vip_ads_table = getattr(MainWindow, "_refresh_vip_ads_table", None)
 _original_refresh_bind_tables = getattr(MainWindow, "_refresh_bind_tables", None)
+_original_on_vip_alert_selection_changed = getattr(MainWindow, "_on_vip_alert_selection_changed", None)
 
 
 def _patched_build_general_settings_group(self: MainWindow):
@@ -5041,6 +5128,26 @@ def _patched_refresh_vip_ads_table(self: MainWindow) -> None:
         text = badge.text().casefold()
         if "активних" in text or "активні" in text or "активне" in text:
             _normalize_count_badge(badge)
+
+
+def _patched_on_vip_alert_selection_changed(self: MainWindow, *args, **kwargs) -> None:
+    if callable(_original_on_vip_alert_selection_changed):
+        _original_on_vip_alert_selection_changed(self, *args, **kwargs)
+    alert = None
+    resolver = getattr(self, "_target_vip_alert", None)
+    if callable(resolver):
+        try:
+            alert = resolver()
+        except Exception:
+            alert = None
+    if alert is None:
+        resolver = getattr(self, "_selected_vip_alert", None)
+        if callable(resolver):
+            try:
+                alert = resolver()
+            except Exception:
+                alert = None
+    _sync_vip_reason_selector(self, alert)
 
 
 def _beautify_bind_tables(self: MainWindow) -> None:
@@ -5306,6 +5413,7 @@ MainWindow._apply_nav_button_icon = _apply_nav_button_icon
 MainWindow._format_pm_command = _format_pm_command
 MainWindow._format_vip_punishment_command = _format_vip_punishment_command
 MainWindow._on_vip_mode_changed = _on_vip_mode_changed
+MainWindow._on_vip_alert_selection_changed = _patched_on_vip_alert_selection_changed
 MainWindow._on_nav_clicked = _patched_on_nav_clicked
 MainWindow._refresh_table = _patched_refresh_table
 MainWindow._refresh_vip_ads_table = _patched_refresh_vip_ads_table

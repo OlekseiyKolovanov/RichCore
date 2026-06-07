@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, Signal
 
 from .ai_responder import SharedAIService
 from .models import VipAdAlert, VipChatMessage
-from .vip_triggers import find_offensive_triggers
+from .vip_triggers import find_offensive_triggers, offensive_reason_kind
 
 
 _VIP_START_TIME = clock_time(11, 0)
@@ -79,13 +79,14 @@ class VipAdDetector(QObject):
         for message in messages:
             offensive_triggers = find_offensive_triggers(message.text)
             if offensive_triggers:
+                reason_tag = "образа гравців" if offensive_reason_kind(message.text) == "insult" else "нецензурна лайка"
                 alerts.append(
                     VipAdAlert(
                         timestamp=message.timestamp,
                         player_name=message.player_name,
                         player_id=message.player_id,
                         text=message.text,
-                        matched_keywords=("образлива лексика", *offensive_triggers),
+                        matched_keywords=(reason_tag, *offensive_triggers),
                     )
                 )
             elif self._is_allowed_timestamp(message.timestamp):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import urllib.error
@@ -10,10 +11,11 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from .paths import config_dir
+from .paths import app_root_dir, config_dir, legacy_appdata_dir
 
 
 CONFIG_PATH = config_dir() / "appointments_config.json"
+GITHUB_TOKEN_ENV = "RICHCORE_GITHUB_TOKEN"
 
 DEFAULT_OWNER = "UKRAINE-GTA-02"
 DEFAULT_LEADERS_PROJECT = 17
@@ -169,16 +171,13 @@ class AppointmentError(RuntimeError):
 
 
 def load_appointment_config() -> AppointmentConfig:
-    if not CONFIG_PATH.exists():
-        return AppointmentConfig()
-    try:
-        raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return AppointmentConfig()
     config = AppointmentConfig()
-    for key in asdict(config):
-        if key in raw:
-            setattr(config, key, raw[key])
+    raw = _read_config_payload(CONFIG_PATH)
+    if raw:
+        _merge_config_payload(config, raw)
+    else:
+        _merge_first_existing_config(config)
+    _apply_github_token_fallback(config)
     config.leaders_project = _to_int(config.leaders_project, DEFAULT_LEADERS_PROJECT)
     config.deputies_project = _to_int(config.deputies_project, DEFAULT_DEPUTIES_PROJECT)
     config.watchers_project = _to_int(config.watchers_project, DEFAULT_WATCHERS_PROJECT)
@@ -187,6 +186,57 @@ def load_appointment_config() -> AppointmentConfig:
 
 def save_appointment_config(config: AppointmentConfig) -> None:
     CONFIG_PATH.write_text(json.dumps(asdict(config), ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _read_config_payload(path) -> dict[str, Any]:
+    try:
+        if not path.exists():
+            return {}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _merge_config_payload(config: AppointmentConfig, raw: dict[str, Any], *, only_missing: bool = False) -> None:
+    for key in asdict(config):
+        if key not in raw:
+            continue
+        if only_missing and getattr(config, key):
+            continue
+        setattr(config, key, raw[key])
+
+
+def _legacy_config_paths() -> tuple:
+    app_root = app_root_dir()
+    return (
+        app_root.parent / "config" / "appointments_config.json",
+        legacy_appdata_dir("RichCore") / "appointments_config.json",
+        legacy_appdata_dir("Atools") / "appointments_config.json",
+    )
+
+
+def _merge_first_existing_config(config: AppointmentConfig) -> None:
+    for path in _legacy_config_paths():
+        raw = _read_config_payload(path)
+        if raw:
+            _merge_config_payload(config, raw, only_missing=True)
+            return
+
+
+def _apply_github_token_fallback(config: AppointmentConfig) -> None:
+    env_token = os.environ.get(GITHUB_TOKEN_ENV, "").strip()
+    if env_token:
+        config.github_token = env_token
+        return
+    if config.github_token.strip():
+        return
+    for path in _legacy_config_paths():
+        raw = _read_config_payload(path)
+        token = str(raw.get("github_token") or "").strip()
+        if token:
+            config.github_token = token
+            return
 
 
 def parse_appointment_record(payload: dict[str, Any]) -> AppointmentRecord:

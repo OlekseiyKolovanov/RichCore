@@ -445,7 +445,35 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
     QFrame#windowControls {{
         background: {t["NAV_BG"]};
         border: 1px solid {t["NAV_BORDER"]};
-        border-radius: 14px;
+        border-radius: 15px;
+        min-height: 40px;
+        max-height: 40px;
+    }}
+
+    QFrame#sectionHeaderBar {{
+        background: transparent;
+        border: none;
+    }}
+
+    QLabel#sectionEyebrow {{
+        color: {t["MUTED"]};
+        font-size: 7.8pt;
+        font-weight: 700;
+        letter-spacing: 0px;
+    }}
+
+    QLabel#sectionHeaderTitle {{
+        color: {t["WINDOW_TEXT"]};
+        font-size: 13.2pt;
+        font-weight: 700;
+        letter-spacing: 0px;
+    }}
+
+    QLabel#sectionHeaderSubtitle {{
+        color: {t["MUTED"]};
+        font-size: 8.4pt;
+        font-weight: 500;
+        letter-spacing: 0px;
     }}
 
     QWidget[navItem="true"] {{
@@ -489,15 +517,15 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
     QPushButton#winControl_close {{
         background: {t["CONTROL_BG"]};
         border: 1px solid {t["CONTROL_BORDER"]};
-        border-radius: 11px;
+        border-radius: 10px;
         color: {t["SECONDARY"]};
         font-size: 1pt;
         font-weight: 700;
         padding: 0;
-        min-width: 30px;
-        max-width: 30px;
-        min-height: 30px;
-        max-height: 30px;
+        min-width: 28px;
+        max-width: 28px;
+        min-height: 28px;
+        max-height: 28px;
     }}
 
     QPushButton#winControl:hover {{
@@ -607,6 +635,14 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
         border-radius: 24px;
     }}
 
+    QFrame[workspacePanel="true"],
+    QFrame#workspaceSurface {{
+        background: {t["CARD_BG"]};
+        border: 1px solid {t["CARD_BORDER"]};
+        border-top: 1px solid {t["CARD_BORDER_STRONG"]};
+        border-radius: 20px;
+    }}
+
     QWidget#embeddedScrollViewport,
     QWidget#settingsScrollAreaViewport,
     QWidget#embeddedScrollHost,
@@ -668,6 +704,13 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
         color: {t["WINDOW_TEXT"]};
         letter-spacing: 0.1px;
         {"letter-spacing: 0px;" if mode == "blueprint" else ""}
+    }}
+
+    QLabel[class="queueTitle"], QLabel[queueTitle="true"] {{
+        font-size: 11.6pt;
+        font-weight: 700;
+        color: {t["WINDOW_TEXT"]};
+        letter-spacing: 0px;
     }}
 
     QLabel[formLabel="true"] {{
@@ -883,12 +926,13 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
 
     QPushButton[class="quickReply"],
     QPushButton[chipAction="true"],
-    QPushButton#quickReplyButton {{
+    QPushButton#quickReplyButton,
+    QPushButton[roundedChip="true"] {{
         background: {t["CARD_RAISED"]};
         border: 1px solid {t["ACCENT_LINE"]};
-        border-radius: 16px;
+        border-radius: 18px;
         padding: 0 12px;
-        min-height: 32px;
+        min-height: 34px;
         color: {t["SECONDARY"]};
         font-size: 8.5pt;
         font-weight: 600;
@@ -897,7 +941,8 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
 
     QPushButton[class="quickReply"]:hover,
     QPushButton[chipAction="true"]:hover,
-    QPushButton#quickReplyButton:hover {{
+    QPushButton#quickReplyButton:hover,
+    QPushButton[roundedChip="true"]:hover {{
         background: {t["ACCENT_SOFT"]};
         border-color: {t["CARD_BORDER_GLOW"]};
         color: {t["WINDOW_TEXT"]};
@@ -905,7 +950,8 @@ def stylesheet(theme_mode: str = DEFAULT_THEME_MODE) -> str:
 
     QPushButton[class="quickReply"]:pressed,
     QPushButton[chipAction="true"]:pressed,
-    QPushButton#quickReplyButton:pressed {{
+    QPushButton#quickReplyButton:pressed,
+    QPushButton[roundedChip="true"]:pressed {{
         background: {t["COMBO_POPUP_SELECTED"]};
     }}
 
