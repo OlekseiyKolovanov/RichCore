@@ -39,6 +39,9 @@ jobs:
           name: RichCore_v12
           path: dist/RichCore_v12.zip
 
+      - name: Install GitHub CLI
+        uses: cli/gh-action@v3
+
       - name: Publish release asset
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -46,6 +49,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          gh version
           gh release view $env:TAG_NAME 2>$null
           if ($LASTEXITCODE -ne 0) {
             gh release create $env:TAG_NAME --title $env:TAG_NAME --notes "RichCore $env:TAG_NAME"

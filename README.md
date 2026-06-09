@@ -58,4 +58,13 @@ To publish an update:
 Users will see an update prompt in RichCore and can update without downloading or reinstalling manually.
 Release assets should be uploaded as `RichCore_v12.zip`; the updater also supports legacy single-exe assets.
 If GitHub Actions is unavailable, run `.\scripts\build.ps1` locally and upload `dist\RichCore_v12.zip` to the Release manually.
+
+### Manual release publish
+If the release is missing or GitHub Actions did not publish it, run:
+
+```powershell
+$env:RICHCORE_GITHUB_TOKEN = '<your-token-with-repo-scope>'
+python .\scripts\publish_release.py v1.0.8
+```
+
 The installer file name stays stable as `RichCore_Setup.exe`; do not create a separate installer filename for every version.
