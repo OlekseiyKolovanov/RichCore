@@ -17,13 +17,13 @@ from .models import Report, VipChatMessage
 from .paths import ai_config_path, ai_resource_path
 
 
-DEFAULT_BASE_URL = "https://api.intelligence.io.solutions/api/v1"
+DEFAULT_BASE_URL = "http://localhost:3264/api"
 FILE_ENCODINGS = ("utf-8-sig", "utf-8", "cp1251", "cp866", "utf-16")
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "base_url": DEFAULT_BASE_URL,
-    "api_keys": [],
-    "preferred_models": ["meta-llama/Llama-3.3-70B-Instruct"],
+    "api_keys": ["dummy-key"],
+    "preferred_models": ["qwen3.7-max"],
     "skip_models": [],
     "request": {
         "temperature": 0.2,
@@ -451,7 +451,13 @@ def load_config(config_path: Path) -> dict[str, Any]:
         user_config = json.loads(read_text_file(config_path))
         config = deep_merge(config, user_config)
 
-    env_keys_raw = os.getenv("IOI_API_KEYS") or os.getenv("IOI_API_KEY") or ""
+    env_keys_raw = (
+        os.getenv("FREEQWEN_API_KEYS")
+        or os.getenv("FREEQWEN_API_KEY")
+        or os.getenv("IOI_API_KEYS")
+        or os.getenv("IOI_API_KEY")
+        or ""
+    )
     env_keys = [item.strip() for item in env_keys_raw.split(",") if item.strip()]
     aiasist_base_url, aiasist_keys, aiasist_models = load_aiasist_provider_snapshot()
 

@@ -1,11 +1,10 @@
 {
-  "base_url": "https://api.intelligence.io.solutions/api/v1",
+  "base_url": "http://localhost:3264/api",
   "api_keys": [
-    "PASTE_FIRST_API_KEY_HERE",
-    "PASTE_SECOND_API_KEY_HERE"
+    "dummy-key"
   ],
   "preferred_models": [
-    "meta-llama/Llama-3.3-70B-Instruct"
+    "qwen3.7-max"
   ],
   "skip_models": [],
   "request": {

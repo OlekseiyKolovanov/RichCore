@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 7, 0),
-    prodvers=(1, 0, 7, 0),
+    filevers=(1, 0, 8, 0),
+    prodvers=(1, 0, 8, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,11 +16,11 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'RichCore'),
           StringStruct('FileDescription', 'RichCore administration toolkit'),
-          StringStruct('FileVersion', '1.0.7.0'),
+          StringStruct('FileVersion', '1.0.8.0'),
           StringStruct('InternalName', 'RichCore_v12'),
           StringStruct('OriginalFilename', 'RichCore_v12.exe'),
           StringStruct('ProductName', 'RichCore'),
-          StringStruct('ProductVersion', '1.0.7.0')
+          StringStruct('ProductVersion', '1.0.8.0')
         ]
       )
     ]),

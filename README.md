@@ -8,6 +8,7 @@ Requirements:
 
 - Windows
 - Python 3.14
+- Optional: FreeQwenApi running on `http://localhost:3264/api` for AI support
 
 Run:
 
@@ -16,6 +17,10 @@ py -3.14 launcher.py
 ```
 
 RichCore must run as administrator. If it is started without admin rights, the launcher asks Windows to restart it with UAC elevation.
+
+### FreeQwenApi support
+
+By default RichCore uses FreeQwenApi-compatible chat completion endpoints. Set `ai/config.json` to point at your local FreeQwenApi server and use `dummy-key` as the default API key.
 
 ## Build EXE
 
@@ -30,9 +35,11 @@ dist\RichCore_v12\RichCore_v12.exe
 dist\RichCore_v12.zip
 ```
 
+The installer is created as `dist\RichCore_Setup.exe`.
+
 ## Auto-update
 
-Source launches update with `git pull --ff-only` when this folder is a normal clone with an upstream branch.
+Source launches update with `git pull --ff-only` when this folder is a normal clone with an upstream branch. You can also update manually using `scripts\update_from_github.ps1`.
 
 Compiled EXE launches update from the latest GitHub Release of:
 

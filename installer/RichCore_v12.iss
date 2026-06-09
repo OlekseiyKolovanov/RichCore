@@ -1,6 +1,6 @@
 #define MyAppName "RichCore"
 #define MyAppExeName "RichCore_v12.exe"
-#define MyAppVersion "1.0.7"
+#define MyAppVersion "1.0.8"
 
 [Setup]
 AppId={{8C558550-8E2C-4FC7-B16D-8A5D9D7E2E17}
@@ -12,9 +12,11 @@ AppSupportURL=https://github.com/OlekseiyKolovanov/RichCore/issues
 AppUpdatesURL=https://github.com/OlekseiyKolovanov/RichCore/releases
 DefaultDirName={autopf}\RichCore
 DefaultGroupName=RichCore
+DisableDirPage=no
 DisableProgramGroupPage=yes
+Uninstallable=yes
 OutputDir=..\dist
-OutputBaseFilename=RichCore_v12_Setup
+OutputBaseFilename=RichCore_Setup
 SetupIconFile=..\assets\iconka.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
