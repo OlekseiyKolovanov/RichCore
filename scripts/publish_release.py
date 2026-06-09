@@ -1,10 +1,9 @@
 import json
 import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
+
+import requests
 
 GITHUB_OWNER = "OlekseiyKolovanov"
 GITHUB_REPO = "RichCore"
@@ -20,22 +19,19 @@ def get_token() -> str:
 
 
 def request_json(url: str, method: str = "GET", data=None, headers=None) -> dict:
-    headers = {**(headers or {}), "User-Agent": "RichCorePublisher/1.0"}
-    if data is not None:
-        d = json.dumps(data).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    else:
-        d = None
-    req = urllib.request.Request(url, data=d, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    request_headers = {**(headers or {}), "User-Agent": "RichCorePublisher/1.0"}
+    response = requests.request(method, url, json=data, headers=request_headers, timeout=(10, 30))
+    response.raise_for_status()
+    return response.json()
 
 
 def delete_asset(url: str, token: str) -> None:
-    req = urllib.request.Request(url, headers={"Authorization": f"token {token}", "User-Agent": "RichCorePublisher/1.0"}, method="DELETE")
-    with urllib.request.urlopen(req, timeout=30) as response:
-        if response.status not in (200, 204):
-            raise RuntimeError(f"Failed to delete asset: {response.status}")
+    response = requests.delete(
+        url,
+        headers={"Authorization": f"token {token}", "User-Agent": "RichCorePublisher/1.0"},
+        timeout=(10, 30),
+    )
+    response.raise_for_status()
 
 
 def main() -> None:
@@ -88,14 +84,18 @@ def main() -> None:
             print(f"Deleting existing asset {asset_path.name}")
             delete_asset(asset.get("url"), token)
 
-    upload_target = f"{upload_url}?name={urllib.parse.quote(asset_path.name)}"
+    upload_target = f"{upload_url}?name={requests.utils.requote_uri(asset_path.name)}"
     with asset_path.open("rb") as f:
-        data = f.read()
-    req = urllib.request.Request(upload_target, data=data, headers={**headers, "Content-Type": "application/octet-stream"}, method="POST")
-    with urllib.request.urlopen(req, timeout=120) as response:
-        result = json.loads(response.read().decode("utf-8"))
-        print(f"Uploaded asset: {result.get('name')}")
-        print(f"Download URL: {result.get('browser_download_url')}")
+        response = requests.post(
+            upload_target,
+            headers={**headers, "Content-Type": "application/zip"},
+            data=f,
+            timeout=(10, 300),
+        )
+    response.raise_for_status()
+    result = response.json()
+    print(f"Uploaded asset: {result.get('name')}")
+    print(f"Download URL: {result.get('browser_download_url')}")
 
 
 if __name__ == "__main__":

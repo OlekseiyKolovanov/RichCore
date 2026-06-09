@@ -67,4 +67,6 @@ $env:RICHCORE_GITHUB_TOKEN = '<your-token-with-repo-scope>'
 python .\scripts\publish_release.py v1.0.8
 ```
 
+The token must have repository write/release permissions so asset upload succeeds.
+
 The installer file name stays stable as `RichCore_Setup.exe`; do not create a separate installer filename for every version.
