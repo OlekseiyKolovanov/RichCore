@@ -27,8 +27,14 @@ if (-not $iscc) {
 $setupScript = Join-Path $Root "installer\RichCore_v12.iss"
 & $iscc $setupScript
 
-$setupPath = Join-Path $Root "dist\RichCore_v12_Setup.exe"
+$setupPath = Join-Path $Root "dist\RichCore_Setup.exe"
+$legacySetupPath = Join-Path $Root "dist\RichCore_v12_Setup.exe"
 $exePath = Join-Path $Root "dist\RichCore_v12\RichCore_v12.exe"
+
+if (-not (Test-Path $setupPath)) {
+    throw "Installer output not found: $setupPath"
+}
+Copy-Item -Path $setupPath -Destination $legacySetupPath -Force
 
 $signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
 $pfx = $env:RICHCORE_CODESIGN_PFX
@@ -39,7 +45,7 @@ if ($signtool -and $pfx -and (Test-Path $pfx)) {
     if ($pfxPassword) {
         $signArgs += @("/p", $pfxPassword)
     }
-    foreach ($target in @($exePath, $setupPath)) {
+    foreach ($target in @($exePath, $setupPath, $legacySetupPath)) {
         if (Test-Path $target) {
             & $signtool @signArgs $target
         }
@@ -48,4 +54,4 @@ if ($signtool -and $pfx -and (Test-Path $pfx)) {
     Write-Host "Code signing skipped: signtool or RICHCORE_CODESIGN_PFX is not configured."
 }
 
-Write-Host "Built dist\RichCore_v12_Setup.exe"
+Write-Host "Built dist\RichCore_Setup.exe (also copied to dist\RichCore_v12_Setup.exe)"

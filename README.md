@@ -36,6 +36,7 @@ dist\RichCore_v12.zip
 ```
 
 The installer is created as `dist\RichCore_Setup.exe`.
+A legacy copy is also created at `dist\RichCore_v12_Setup.exe` for compatibility with older release workflows.
 
 ## Auto-update
 
